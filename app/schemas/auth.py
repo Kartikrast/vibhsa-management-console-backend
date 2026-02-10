@@ -22,6 +22,11 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+class GoogleAuthRequest(BaseModel):
+    token: str
+    organization_name: str
+
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str

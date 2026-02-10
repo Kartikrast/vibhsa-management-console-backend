@@ -9,6 +9,9 @@ from app.models.organization_membership import OrganizationMembership
 from app.core.security import hash_password
 from app.services.auth_service import authenticate_user, issue_tokens
 from app.utils.slug import generate_slug
+from app.schemas.auth import GoogleAuthRequest
+from app.services.google_oauth import verify_google_token
+
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -109,6 +112,104 @@ def login(
         )
 
     # 3) Issue tokens
+    return issue_tokens(
+        db=db,
+        user=user,
+        organization_id=membership.organization_id,
+    )
+
+@router.post("/google", response_model=Token)
+def google_auth(
+    payload: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+):
+    # 1) Verify Google token
+    try:
+        google_data = verify_google_token(payload.token)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token",
+        )
+
+    email = google_data.get("email")
+    google_user_id = google_data.get("sub")
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google account has no email",
+        )
+
+    # 2) Find existing user
+    user = (
+        db.query(User)
+        .filter(
+            (User.provider_user_id == google_user_id)
+            | (User.email == email)
+        )
+        .first()
+    )
+
+    # 3) Create user if new
+    if not user:
+        user = User(
+            email=email,
+            hashed_password=None,
+            auth_provider="google",
+            provider_user_id=google_user_id,
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+
+        # Create organization for first-time Google user
+        org_slug = generate_slug(payload.organization_name)
+        if db.query(Organization).filter(Organization.slug == org_slug).first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization name already in use",
+            )
+
+        organization = Organization(
+            name=payload.organization_name,
+            slug=org_slug,
+            is_active=True,
+        )
+        db.add(organization)
+        db.flush()
+
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=organization.id,
+            role="owner",
+            is_active=True,
+        )
+        db.add(membership)
+        db.commit()
+
+        return issue_tokens(
+            db=db,
+            user=user,
+            organization_id=organization.id,
+        )
+
+    # 4) Existing user → pick active org
+    membership = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.is_active.is_(True),
+        )
+        .first()
+    )
+
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has no active organization",
+        )
+
     return issue_tokens(
         db=db,
         user=user,
