@@ -38,3 +38,19 @@ class TokenPayload(BaseModel):
     org_id: int
     role: str
     exp: int
+
+class OrganizationInfo(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+    class Config:
+        from_attributes = True
+
+
+class MeResponse(BaseModel):
+    id: int
+    email: EmailStr
+    auth_provider: str
+    organization: OrganizationInfo
+    role: str

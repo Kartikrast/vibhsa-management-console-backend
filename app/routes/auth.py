@@ -2,15 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.schemas.auth import UserCreate, UserLogin, Token
+from app.schemas.auth import UserCreate, UserLogin, Token, GoogleAuthRequest, MeResponse
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.organization_membership import OrganizationMembership
 from app.core.security import hash_password
 from app.services.auth_service import authenticate_user, issue_tokens
 from app.utils.slug import generate_slug
-from app.schemas.auth import GoogleAuthRequest
 from app.services.google_oauth import verify_google_token
+from app.core.dependencies import get_current_context
+
 
 
 
@@ -214,4 +215,18 @@ def google_auth(
         db=db,
         user=user,
         organization_id=membership.organization_id,
+    )
+
+@router.get("/me", response_model=MeResponse)
+def get_me(context=Depends(get_current_context)):
+    user = context["user"]
+    organization = context["organization"]
+    role = context["role"]
+
+    return MeResponse(
+        id=user.id,
+        email=user.email,
+        auth_provider=user.auth_provider,
+        organization=organization,
+        role=role,
     )

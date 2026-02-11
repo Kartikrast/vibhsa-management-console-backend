@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # Google
     GOOGLE_CLIENT_ID: str
 
+    WALMART_ENV: str = "sandbox"
+    WALMART_SANDBOX_URL: str
+    WALMART_PRODUCTION_URL: str
+
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
