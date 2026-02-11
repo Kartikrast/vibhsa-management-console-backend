@@ -8,11 +8,21 @@ from app.core.config import get_settings
 settings = get_settings()
 
 class WalmartClient:
-    def __init__(self, account):
+    def __init__(self, account=None, client_id=None, client_secret=None):
         """
-        account = MarketplaceAccount DB object
+        account → MarketplaceAccount (normal usage)
+        OR
+        client_id + client_secret → bootstrap mode (connect flow)
         """
         self.account = account
+
+        if account:
+            self.client_id = account.client_id
+            self.client_secret = account.client_secret
+        else:
+            self.client_id = client_id
+            self.client_secret = client_secret
+
         if settings.WALMART_ENV == "production":
             self.base_url = settings.WALMART_PRODUCTION_URL
         else:
@@ -24,7 +34,7 @@ class WalmartClient:
             "Content-Type": "application/json",
             "WM_SVC.NAME": "Vibhsa",
             "WM_QOS.CORRELATION_ID": str(uuid.uuid4()),
-            "WM_CONSUMER.CHANNEL.TYPE": "10001029243",  # from Walmart portal
+            "WM_CONSUMER.CHANNEL.TYPE": self.account.seller_id,  # from Walmart portal
             "WM_SEC.ACCESS_TOKEN": self.account.access_token,
         }
 
@@ -45,7 +55,7 @@ class WalmartClient:
                 "WM_SVC.NAME": "Vibhsa",
                 "WM_QOS.CORRELATION_ID": str(uuid.uuid4()),
             },
-            auth=(self.account.client_id, self.account.client_secret),
+            auth=(self.client_id, self.client_secret),
         )
 
         if response.status_code != 200:
@@ -59,6 +69,24 @@ class WalmartClient:
         )
 
         db.commit()
+    
+    def get_access_token(self):
+        response = httpx.post(
+            f"{self.base_url}/v3/token",
+            data={"grant_type": "client_credentials"},
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "WM_SVC.NAME": "Vibhsa",
+                "WM_QOS.CORRELATION_ID": str(uuid.uuid4()),
+            },
+            auth=(self.client_id, self.client_secret),
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Token generation failed: {response.text}")
+
+        return response.json()
 
     def request(self, method, endpoint, db, **kwargs):
         """

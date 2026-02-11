@@ -15,7 +15,8 @@ def verify_google_token(token: str) -> dict:
             token,
             requests.Request(),
             settings.GOOGLE_CLIENT_ID,
+            clock_skew_in_seconds=60,
         )
         return idinfo
-    except Exception:
+    except Exception as e:
         raise ValueError("Invalid Google token")
