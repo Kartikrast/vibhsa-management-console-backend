@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
+from uuid import UUID
 
 
 class UserBase(BaseModel):
@@ -15,7 +16,7 @@ class UserLogin(BaseModel):
     password: str
 
 class UserResponse(UserBase):
-    id: int
+    id: UUID
     is_active: bool
     created_at: datetime
 
@@ -34,13 +35,13 @@ class Token(BaseModel):
 
 
 class TokenPayload(BaseModel):
-    sub: int  # user_id
-    org_id: int
+    sub: str  # user_id (UUID as string)
+    org_id: str  # organization_id (UUID as string)
     role: str
     exp: int
 
 class OrganizationInfo(BaseModel):
-    id: int
+    id: UUID
     name: str
     slug: str
 
@@ -49,7 +50,7 @@ class OrganizationInfo(BaseModel):
 
 
 class MeResponse(BaseModel):
-    id: int
+    id: UUID
     email: EmailStr
     auth_provider: str
     organization: OrganizationInfo

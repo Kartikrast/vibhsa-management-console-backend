@@ -87,3 +87,24 @@ def fetch_walmart_items(
     data = client.get_items(db=db, limit=10)
 
     return data
+
+@router.get("/walmart/status")
+def walmart_connection_status(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        return {"connected": False, "message": "Walmart not connected"}
+
+    return {
+        "connected": True,
+        "message": "Walmart connected"
+    }

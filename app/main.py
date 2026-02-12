@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.routes import auth
 from app.routes import marketplaces
+from app.routes import products
+from app.routes import taxonomy
+
+
 
 settings = get_settings()
 
@@ -13,6 +17,8 @@ app = FastAPI(
 )
 app.include_router(auth.router)
 app.include_router(marketplaces.router)
+app.include_router(products.router)
+app.include_router(taxonomy.router)
 
 # allow CORS origins
 app.add_middleware(

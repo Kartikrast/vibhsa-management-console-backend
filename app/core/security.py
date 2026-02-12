@@ -21,8 +21,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(
-    subject: int,
-    organization_id: int,
+    subject: Any,
+    organization_id: Any,
     role: str,
     expires_delta: timedelta | None = None,
 ) -> str:
@@ -35,7 +35,7 @@ def create_access_token(
 
     to_encode: dict[str, Any] = {
         "sub": str(subject),
-        "org_id": organization_id,
+        "org_id": str(organization_id),
         "role": role,
         "exp": expire,
     }
@@ -48,7 +48,7 @@ def create_access_token(
     return encoded_jwt
 
 def create_refresh_token(
-    subject: int,
+    subject: Any,
     expires_days: int = 7,
 ) -> str:
     expire = datetime.utcnow() + timedelta(days=expires_days)

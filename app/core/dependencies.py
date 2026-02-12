@@ -17,8 +17,8 @@ def get_current_context(
 ):
     try:
         payload = decode_token(token.credentials)
-        user_id = int(payload.get("sub"))
-        org_id = int(payload.get("org_id"))
+        user_id = payload.get("sub")
+        org_id = payload.get("org_id")
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

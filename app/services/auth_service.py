@@ -33,7 +33,7 @@ def authenticate_user(
 def issue_tokens(
     db: Session,
     user: User,
-    organization_id: int,
+    organization_id,
 ) -> Token:
     membership = (
         db.query(OrganizationMembership)

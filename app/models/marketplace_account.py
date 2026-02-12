@@ -1,12 +1,17 @@
+import uuid
+from datetime import datetime
 from sqlalchemy import (
     String,
     Boolean,
     ForeignKey,
     DateTime,
     Text,
+    UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
 
 from app.models.base import Base
 
@@ -14,34 +19,78 @@ from app.models.base import Base
 class MarketplaceAccount(Base):
     __tablename__ = "marketplace_accounts"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
 
-    organization_id: Mapped[int] = mapped_column(
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     marketplace: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-    )  # e.g., "walmart"
+    )  # e.g., "walmart", "amazon"
 
-    seller_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    seller_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
 
-    client_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    client_secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
 
-    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    token_expiry: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    client_secret: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
 
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    access_token: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
 
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    refresh_token: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    token_expiry: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     # Relationships
     organization = relationship("Organization")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "marketplace",
+            name="uq_org_marketplace",
+        ),
+        Index("ix_marketplace_org", "organization_id", "marketplace"),
+    )
