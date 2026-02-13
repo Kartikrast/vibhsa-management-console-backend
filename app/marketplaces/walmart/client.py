@@ -1,7 +1,7 @@
 import httpx
 import uuid
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
 
@@ -42,7 +42,7 @@ class WalmartClient:
         if not self.account.token_expiry:
             return
 
-        if datetime.utcnow() < self.account.token_expiry:
+        if datetime.now(timezone.utc) < self.account.token_expiry:
             return  # still valid
 
         # refresh token
@@ -64,7 +64,7 @@ class WalmartClient:
         token_data = response.json()
 
         self.account.access_token = token_data["access_token"]
-        self.account.token_expiry = datetime.utcnow() + timedelta(
+        self.account.token_expiry = datetime.now(timezone.utc) + timedelta(
             seconds=token_data["expires_in"]
         )
 
