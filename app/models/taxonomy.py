@@ -132,20 +132,52 @@ class ProductType(Base):
     __tablename__ = "product_types"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
     )
 
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    short_code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    subsubcategory_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subsubcategories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    short_code: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True),
+        server_default=func.now(),
     )
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    subsubcategory = relationship("SubSubCategory")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subsubcategory_id",
+            "short_code",
+            name="uq_product_type_per_subsubcategory",
+        ),
     )
 
 

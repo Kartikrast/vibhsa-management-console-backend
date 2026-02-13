@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+import uuid
 
 from app.core.database import get_db
 from app.schemas.taxonomy import SimpleTaxonomyResponse
@@ -22,7 +23,12 @@ router = APIRouter(prefix="/taxonomy", tags=["Taxonomy"])
 # ========================
 @router.get("/categories", response_model=list[SimpleTaxonomyResponse])
 def get_categories(db: Session = Depends(get_db)):
-    return db.query(Category).filter(Category.is_active.is_(True)).all()
+    return (
+        db.query(Category)
+        .filter(Category.is_active.is_(True))
+        .order_by(Category.name.asc())
+        .all()
+    )
 
 
 # ========================
@@ -30,7 +36,7 @@ def get_categories(db: Session = Depends(get_db)):
 # ========================
 @router.get("/subcategories", response_model=list[SimpleTaxonomyResponse])
 def get_subcategories(
-    category_id: str = Query(...),
+    category_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
 ):
     return (
@@ -39,6 +45,7 @@ def get_subcategories(
             SubCategory.category_id == category_id,
             SubCategory.is_active.is_(True),
         )
+        .order_by(SubCategory.name.asc())
         .all()
     )
 
@@ -48,7 +55,7 @@ def get_subcategories(
 # ========================
 @router.get("/subsubcategories", response_model=list[SimpleTaxonomyResponse])
 def get_subsubcategories(
-    subcategory_id: str = Query(...),
+    subcategory_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
 ):
     return (
@@ -57,16 +64,28 @@ def get_subsubcategories(
             SubSubCategory.subcategory_id == subcategory_id,
             SubSubCategory.is_active.is_(True),
         )
+        .order_by(SubSubCategory.name.asc())
         .all()
     )
 
 
 # ========================
-# Product Types
+# Product Types (FIXED)
 # ========================
 @router.get("/product-types", response_model=list[SimpleTaxonomyResponse])
-def get_product_types(db: Session = Depends(get_db)):
-    return db.query(ProductType).filter(ProductType.is_active.is_(True)).all()
+def get_product_types(
+    subsubcategory_id: uuid.UUID = Query(...),
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(ProductType)
+        .filter(
+            ProductType.subsubcategory_id == subsubcategory_id,
+            ProductType.is_active.is_(True),
+        )
+        .order_by(ProductType.name.asc())
+        .all()
+    )
 
 
 # ========================
@@ -74,7 +93,12 @@ def get_product_types(db: Session = Depends(get_db)):
 # ========================
 @router.get("/materials", response_model=list[SimpleTaxonomyResponse])
 def get_materials(db: Session = Depends(get_db)):
-    return db.query(Material).filter(Material.is_active.is_(True)).all()
+    return (
+        db.query(Material)
+        .filter(Material.is_active.is_(True))
+        .order_by(Material.name.asc())
+        .all()
+    )
 
 
 # ========================
@@ -82,7 +106,12 @@ def get_materials(db: Session = Depends(get_db)):
 # ========================
 @router.get("/colors", response_model=list[SimpleTaxonomyResponse])
 def get_colors(db: Session = Depends(get_db)):
-    return db.query(Color).filter(Color.is_active.is_(True)).all()
+    return (
+        db.query(Color)
+        .filter(Color.is_active.is_(True))
+        .order_by(Color.name.asc())
+        .all()
+    )
 
 
 # ========================
@@ -90,4 +119,10 @@ def get_colors(db: Session = Depends(get_db)):
 # ========================
 @router.get("/sizes", response_model=list[SimpleTaxonomyResponse])
 def get_sizes(db: Session = Depends(get_db)):
-    return db.query(Size).filter(Size.is_active.is_(True)).all()
+    return (
+        db.query(Size)
+        .filter(Size.is_active.is_(True))
+        .order_by(Size.name.asc())
+        .all()
+    )
+
