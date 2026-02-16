@@ -5,21 +5,30 @@ from sqlalchemy import (
     UniqueConstraint,
     String,
     Numeric,
+    Enum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.types import DateTime
+import enum
 
 from app.models.base import Base
+
+
+# ========================
+# IMPORT STATUS ENUM
+# ========================
+
+class ImportStatus(str, enum.Enum):
+    UNLINKED = "UNLINKED"
+    LINKED = "LINKED"
+    ARCHIVED = "ARCHIVED"
 
 
 class MarketplaceListing(Base):
     __tablename__ = "marketplace_listings"
 
-    # ========================
-    # Primary Identity
-    # ========================
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -40,34 +49,55 @@ class MarketplaceListing(Base):
         index=True,
     )
 
-    product_variant_id: Mapped[uuid.UUID] = mapped_column(
+
+    product_variant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("product_variants.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("product_variants.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
     # ========================
-    # Marketplace Data
+    # External Identity
     # ========================
+
     marketplace: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-    )  # e.g. "walmart"
+        index=True,
+    )
+
+    external_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
 
     marketplace_sku: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+        index=True,
     )
 
-    marketplace_item_id: Mapped[str | None] = mapped_column(
-        String(255),
+    title: Mapped[str | None] = mapped_column(
+        String(500),
         nullable=True,
     )
 
-    price: Mapped[float] = mapped_column(
+    # Optional future matching
+    gtin: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+    )
+
+    # ========================
+    # Commercial Data
+    # ========================
+
+    price: Mapped[float | None] = mapped_column(
         Numeric(10, 2),
-        nullable=False,
+        nullable=True,
     )
 
     currency: Mapped[str] = mapped_column(
@@ -76,16 +106,36 @@ class MarketplaceListing(Base):
         nullable=False,
     )
 
+    # ========================
+    # Status Management
+    # ========================
+
+    import_status: Mapped[ImportStatus] = mapped_column(
+        Enum(ImportStatus, name="import_status_enum"),
+        default=ImportStatus.UNLINKED,
+        nullable=False,
+        index=True,
+    )
+
     listing_status: Mapped[str] = mapped_column(
         String(50),
-        default="draft",  # draft, published, paused, archived
+        default="published",
         nullable=False,
     )
 
     sync_status: Mapped[str] = mapped_column(
         String(50),
-        default="pending",  # pending, synced, failed
+        default="pending",
         nullable=False,
+    )
+
+    # ========================
+    # Raw Payload
+    # ========================
+
+    raw_payload: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     last_synced_at: Mapped[datetime | None] = mapped_column(
@@ -107,6 +157,7 @@ class MarketplaceListing(Base):
     # ========================
     # Relationships
     # ========================
+
     organization = relationship("Organization")
     marketplace_account = relationship("MarketplaceAccount")
     product_variant = relationship("ProductVariant")
@@ -114,11 +165,13 @@ class MarketplaceListing(Base):
     # ========================
     # Constraints
     # ========================
+
     __table_args__ = (
-        # Prevent same variant being listed twice on same marketplace account
+        # Prevent duplicate import of same listing
         UniqueConstraint(
-            "marketplace_account_id",
-            "product_variant_id",
-            name="uq_listing_variant_per_marketplace",
+            "organization_id",
+            "marketplace",
+            "external_id",
+            name="uq_external_listing_per_org",
         ),
     )

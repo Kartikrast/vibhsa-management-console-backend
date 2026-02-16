@@ -75,6 +75,12 @@ class Product(Base):
         nullable=False,
     )
 
+    gtin: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+    )
+
     # ========================
     # Metadata
     # ========================
@@ -123,5 +129,10 @@ class Product(Base):
             "organization_id",
             "product_signature",
             name="uq_org_product_signature",
+        ),
+        UniqueConstraint(
+            "organization_id",
+            "gtin",
+            name="uq_product_gtin_per_org"
         ),
     )

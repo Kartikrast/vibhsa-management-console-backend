@@ -45,6 +45,7 @@ def create_product(
     material,
     color,
     size,
+    gtin: str | None = None,
 ):
     try:
         with db.begin():
@@ -99,6 +100,7 @@ def create_product(
                 material_id=material.id,
                 product_code=product_code,
                 product_signature=signature,
+                gtin=gtin,
             )
 
             db.add(product)
@@ -149,3 +151,49 @@ def create_product(
     except IntegrityError:
         db.rollback()
         raise ValueError("Duplicate product detected or SKU conflict")
+
+def create_variant_for_existing_product(
+    db: Session,
+    organization_id,
+    product,
+    category,
+    subcategory,
+    subsubcategory,
+    product_type,
+    color,
+    size,
+):
+    with db.begin():
+
+        sku = (
+            f"{category.short_code}"
+            f"{subcategory.short_code}"
+            f"{subsubcategory.short_code if subsubcategory else ''}"
+            f"{product_type.short_code}"
+            f"{product.product_code}"
+            f"{color.short_code if color else ''}"
+            f"{size.short_code if size else ''}"
+        )
+
+        variant = ProductVariant(
+            organization_id=organization_id,
+            product_id=product.id,
+            color_id=color.id if color else None,
+            size_id=size.id if size else None,
+            sku=sku,
+        )
+
+        db.add(variant)
+        db.flush()
+
+        inventory = Inventory(
+            organization_id=organization_id,
+            product_variant_id=variant.id,
+            location_name="default",
+            quantity_available=0,
+            quantity_reserved=0,
+        )
+
+        db.add(inventory)
+
+    return variant
