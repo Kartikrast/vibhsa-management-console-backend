@@ -1,11 +1,12 @@
 from sqlalchemy.orm import Session
+from app.utils.gtin import normalize_gtin
+from app.models.product import Product
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.product_variant import ProductVariant
 from app.models.inventory import Inventory
 from fastapi import HTTPException
 from uuid import UUID
 from datetime import datetime
-from app.models.product import Product
 from app.services.product_service import (
     create_product,
     create_variant_for_existing_product,
@@ -92,12 +93,13 @@ def generate_internal_from_listing(
     # ----------------------------------
     # 1️⃣ GTIN match
     # ----------------------------------
+    normalized_gtin = normalize_gtin(listing.gtin)
     existing_product = None
 
-    if listing.gtin:
+    if normalized_gtin:
         existing_product = db.query(Product).filter(
             Product.organization_id == organization_id,
-            Product.gtin == listing.gtin,
+            Product.gtin == normalized_gtin,
         ).first()
 
     # ----------------------------------
@@ -146,6 +148,7 @@ def generate_internal_from_listing(
             material=material,
             color=color,
             size=size,
+            gtin=normalized_gtin,
         )
 
         variant = product.variants[0]  # created inside create_product
