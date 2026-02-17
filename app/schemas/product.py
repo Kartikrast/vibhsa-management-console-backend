@@ -45,3 +45,19 @@ class ProductListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ProductListItem(BaseModel):
+    id: UUID
+    title: str | None = None
+    status: str
+    gtin: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class PaginatedProductListResponse(BaseModel):
+    data: list[ProductListItem]
+    total: int
+    page: int
+    limit: int

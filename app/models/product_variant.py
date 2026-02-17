@@ -114,6 +114,18 @@ class ProductVariant(Base):
         back_populates="variants",
     )
 
+    media = relationship(
+    "ProductMedia",
+    back_populates="product_variant",
+    cascade="all, delete-orphan",
+    )
+
+    marketplace_listings = relationship(
+    "MarketplaceListing",
+    back_populates="product_variant",
+    cascade="all, delete-orphan",
+    )
+
     organization = relationship("Organization")
 
     color = relationship("Color")

@@ -48,103 +48,102 @@ def create_product(
     gtin: str | None = None,
 ):
     try:
-        with db.begin():
 
-            # ----------------------------------
-            # 1️⃣ Generate SHA256 signature
-            # ----------------------------------
-            signature = generate_product_signature(
+        # ----------------------------------
+        # 1️⃣ Generate SHA256 signature
+        # ----------------------------------
+        signature = generate_product_signature(
+            organization_id=organization_id,
+            category_id=category.id,
+            subcategory_id=subcategory.id,
+            subsubcategory_id=subsubcategory.id if subsubcategory else None,
+            product_type_id=product_type.id,
+            material_id=material.id,
+        )
+
+        # ----------------------------------
+        # 2️⃣ Lock ProductTypeCounter
+        # ----------------------------------
+        stmt = (
+            select(ProductTypeCounter)
+            .where(
+                ProductTypeCounter.organization_id == organization_id,
+                ProductTypeCounter.product_type_id == product_type.id,
+            )
+            .with_for_update()
+        )
+
+        counter = db.execute(stmt).scalar_one_or_none()
+
+        if not counter:
+            counter = ProductTypeCounter(
                 organization_id=organization_id,
-                category_id=category.id,
-                subcategory_id=subcategory.id,
-                subsubcategory_id=subsubcategory.id if subsubcategory else None,
                 product_type_id=product_type.id,
-                material_id=material.id,
+                current_value=0,
             )
-
-            # ----------------------------------
-            # 2️⃣ Lock ProductTypeCounter
-            # ----------------------------------
-            stmt = (
-                select(ProductTypeCounter)
-                .where(
-                    ProductTypeCounter.organization_id == organization_id,
-                    ProductTypeCounter.product_type_id == product_type.id,
-                )
-                .with_for_update()
-            )
-
-            counter = db.execute(stmt).scalar_one_or_none()
-
-            if not counter:
-                counter = ProductTypeCounter(
-                    organization_id=organization_id,
-                    product_type_id=product_type.id,
-                    current_value=0,
-                )
-                db.add(counter)
-                db.flush()
-
-            counter.current_value += 1
-            product_code = counter.current_value
-
-            # ----------------------------------
-            # 3️⃣ Create Product
-            # ----------------------------------
-            product = Product(
-                organization_id=organization_id,
-                category_id=category.id,
-                subcategory_id=subcategory.id,
-                subsubcategory_id=subsubcategory.id if subsubcategory else None,
-                product_type_id=product_type.id,
-                material_id=material.id,
-                product_code=product_code,
-                product_signature=signature,
-                gtin=gtin,
-            )
-
-            db.add(product)
+            db.add(counter)
             db.flush()
 
-            # ----------------------------------
-            # 4️⃣ Generate SKU
-            # ----------------------------------
-            sku = (
-                f"{category.short_code}"
-                f"{subcategory.short_code}"
-                f"{subsubcategory.short_code if subsubcategory else ''}"
-                f"{product_type.short_code}"
-                f"{product_code}"
-                f"{color.short_code if color else ''}"
-                f"{size.short_code if size else ''}"
-            )
+        counter.current_value += 1
+        product_code = counter.current_value
 
-            # ----------------------------------
-            # 5️⃣ Create Variant
-            # ----------------------------------
-            variant = ProductVariant(
-                organization_id=organization_id,
-                product_id=product.id,
-                color_id=color.id if color else None,
-                size_id=size.id if size else None,
-                sku=sku,
-            )
+        # ----------------------------------
+        # 3️⃣ Create Product
+        # ----------------------------------
+        product = Product(
+            organization_id=organization_id,
+            category_id=category.id,
+            subcategory_id=subcategory.id,
+            subsubcategory_id=subsubcategory.id if subsubcategory else None,
+            product_type_id=product_type.id,
+            material_id=material.id,
+            product_code=product_code,
+            product_signature=signature,
+            gtin=gtin,
+        )
 
-            db.add(variant)
-            db.flush()
+        db.add(product)
+        db.flush()
 
-            # ----------------------------------
-            # 6️⃣ Create Inventory (default location)
-            # ----------------------------------
-            inventory = Inventory(
-                organization_id=organization_id,
-                product_variant_id=variant.id,
-                location_name="default",
-                quantity_available=0,
-                quantity_reserved=0,
-            )
+        # ----------------------------------
+        # 4️⃣ Generate SKU
+        # ----------------------------------
+        sku = (
+            f"{category.short_code}"
+            f"{subcategory.short_code}"
+            f"{subsubcategory.short_code if subsubcategory else ''}"
+            f"{product_type.short_code}"
+            f"{product_code}"
+            f"{color.short_code if color else ''}"
+            f"{size.short_code if size else ''}"
+        )
 
-            db.add(inventory)
+        # ----------------------------------
+        # 5️⃣ Create Variant
+        # ----------------------------------
+        variant = ProductVariant(
+            organization_id=organization_id,
+            product_id=product.id,
+            color_id=color.id if color else None,
+            size_id=size.id if size else None,
+            sku=sku,
+        )
+
+        db.add(variant)
+        db.flush()
+
+        # ----------------------------------
+        # 6️⃣ Create Inventory (default location)
+        # ----------------------------------
+        inventory = Inventory(
+            organization_id=organization_id,
+            product_variant_id=variant.id,
+            location_name="default",
+            quantity_available=0,
+            quantity_reserved=0,
+        )
+
+        db.add(inventory)
 
         return product
 
@@ -163,37 +162,35 @@ def create_variant_for_existing_product(
     color,
     size,
 ):
-    with db.begin():
+    sku = (
+        f"{category.short_code}"
+        f"{subcategory.short_code}"
+        f"{subsubcategory.short_code if subsubcategory else ''}"
+        f"{product_type.short_code}"
+        f"{product.product_code}"
+        f"{color.short_code if color else ''}"
+        f"{size.short_code if size else ''}"
+    )
 
-        sku = (
-            f"{category.short_code}"
-            f"{subcategory.short_code}"
-            f"{subsubcategory.short_code if subsubcategory else ''}"
-            f"{product_type.short_code}"
-            f"{product.product_code}"
-            f"{color.short_code if color else ''}"
-            f"{size.short_code if size else ''}"
-        )
+    variant = ProductVariant(
+        organization_id=organization_id,
+        product_id=product.id,
+        color_id=color.id if color else None,
+        size_id=size.id if size else None,
+        sku=sku,
+    )
 
-        variant = ProductVariant(
-            organization_id=organization_id,
-            product_id=product.id,
-            color_id=color.id if color else None,
-            size_id=size.id if size else None,
-            sku=sku,
-        )
+    db.add(variant)
+    db.flush()
 
-        db.add(variant)
-        db.flush()
+    inventory = Inventory(
+        organization_id=organization_id,
+        product_variant_id=variant.id,
+        location_name="default",
+        quantity_available=0,
+        quantity_reserved=0,
+    )
 
-        inventory = Inventory(
-            organization_id=organization_id,
-            product_variant_id=variant.id,
-            location_name="default",
-            quantity_available=0,
-            quantity_reserved=0,
-        )
-
-        db.add(inventory)
+    db.add(inventory)
 
     return variant

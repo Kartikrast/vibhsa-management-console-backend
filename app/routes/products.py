@@ -1,11 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
+from sqlalchemy import func
+from uuid import UUID
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_context
 
-from app.schemas.product import ProductCreateRequest, ProductResponse, ProductListResponse, VariantResponse
+from app.schemas.product import ProductCreateRequest, ProductResponse, ProductListResponse, PaginatedProductListResponse
+from app.schemas.product_display import (
+    ProductListItemResponse,
+    ProductDetailResponse,
+    UpdateProductRequest,
+)
 
 from app.models.taxonomy import Category, SubCategory, SubSubCategory, ProductType, Material, Color, Size
 from app.models.product import Product
@@ -67,67 +74,105 @@ def create_product_endpoint(
             detail=str(e),
         )
 
-@router.get("", response_model=list[ProductListResponse])
+@router.get("", response_model=PaginatedProductListResponse)
 def get_products(
     context=Depends(get_current_context),
     db: Session = Depends(get_db),
+    page: int = 1,
     limit: int = 20,
-    offset: int = 0,
 ):
     organization = context["organization"]
 
+    query = db.query(Product).filter(
+        Product.organization_id == organization.id
+    )
+
+    total = query.count()
+
     products = (
-        db.query(Product)
-        .options(
-            joinedload(Product.variants)
-            .joinedload(ProductVariant.color),
-            joinedload(Product.variants)
-            .joinedload(ProductVariant.size),
-            joinedload(Product.category),
-            joinedload(Product.product_type),
-            joinedload(Product.material),
-        )
-        .filter(Product.organization_id == organization.id)
-        .offset(offset)
+        query.order_by(Product.created_at.desc())
+        .offset((page - 1) * limit)
         .limit(limit)
         .all()
     )
 
-    result = []
+    data = [
+        ProductListItemResponse.model_validate(product)
+        for product in products
+    ]
 
-    for product in products:
-        variant_list = []
+    return PaginatedProductListResponse(
+        data=data,
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
-        for variant in product.variants:
-            inventory = (
-                db.query(Inventory)
-                .filter(
-                    Inventory.product_variant_id == variant.id,
-                    Inventory.organization_id == organization.id,
-                )
-                .first()
-            )
+@router.get("/{product_id}", response_model=ProductDetailResponse)
+def get_product_detail(
+    product_id: str,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
 
-            variant_list.append(
-                VariantResponse(
-                    id=variant.id,
-                    sku=variant.sku,
-                    color=variant.color.name if variant.color else None,
-                    size=variant.size.name if variant.size else None,
-                    quantity_available=inventory.quantity_available if inventory else 0,
-                )
-            )
-
-        result.append(
-            ProductListResponse(
-                id=product.id,
-                product_code=product.product_code,
-                category=product.category.name,
-                product_type=product.product_type.name,
-                material=product.material.name,
-                created_at=product.created_at,
-                variants=variant_list,
-            )
+    product = (
+        db.query(Product)
+        .options(
+            joinedload(Product.category),
+            joinedload(Product.subcategory),
+            joinedload(Product.subsubcategory),
+            joinedload(Product.product_type),
+            joinedload(Product.material),
+            joinedload(Product.variants)
+            .joinedload(ProductVariant.color),
+            joinedload(Product.variants)
+            .joinedload(ProductVariant.size),
+            joinedload(Product.variants)
+            .joinedload(ProductVariant.media),
+            joinedload(Product.variants)
+            .joinedload(ProductVariant.marketplace_listings),
         )
+        .filter(
+            Product.id == product_id,
+            Product.organization_id == organization.id,
+        )
+        .first()
+    )
 
-    return result
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    return ProductDetailResponse.model_validate(product)
+
+@router.patch("/{product_id}", response_model=ProductDetailResponse)
+def update_product(
+    product_id: UUID,
+    payload: UpdateProductRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    product = (
+        db.query(Product)
+        .filter(
+            Product.id == product_id,
+            Product.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # 🔒 Update only provided fields
+    update_data = payload.dict(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(product, field, value)
+
+    db.commit()
+    db.refresh(product)
+
+    return product

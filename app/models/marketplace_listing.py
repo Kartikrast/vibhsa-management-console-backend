@@ -6,6 +6,7 @@ from sqlalchemy import (
     String,
     Numeric,
     Enum,
+    Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -107,6 +108,26 @@ class MarketplaceListing(Base):
     )
 
     # ========================
+    # Marketplace Content Overrides (NEW)
+    # ========================
+
+    override_title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    override_description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    override_bullet_points: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+
+    # ========================
     # Status Management
     # ========================
 
@@ -160,7 +181,10 @@ class MarketplaceListing(Base):
 
     organization = relationship("Organization")
     marketplace_account = relationship("MarketplaceAccount")
-    product_variant = relationship("ProductVariant")
+    product_variant = relationship(
+        "ProductVariant",
+        back_populates="marketplace_listings",
+        )
 
     # ========================
     # Constraints

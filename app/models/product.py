@@ -1,10 +1,17 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import (
+    ForeignKey,
+    Integer,
+    UniqueConstraint,
+    Text,
+    String,
+    Enum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
-from sqlalchemy.types import DateTime, String
+from sqlalchemy.types import DateTime
 
 from app.models.base import Base
 
@@ -69,7 +76,6 @@ class Product(Base):
         nullable=False,
     )
 
-    # SHA256 fingerprint (64 char hex)
     product_signature: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
@@ -78,6 +84,53 @@ class Product(Base):
     gtin: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
+        index=True,
+    )
+
+    # ========================
+    # PIM Content (NEW)
+    # ========================
+
+    title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    bullet_points: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    meta_title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    meta_description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    seo_keywords: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        Enum(
+            "DRAFT",
+            "ACTIVE",
+            "PUBLISHED",
+            "ARCHIVED",
+            name="product_status_enum",
+        ),
+        default="DRAFT",
+        nullable=False,
         index=True,
     )
 
@@ -117,14 +170,12 @@ class Product(Base):
     # Constraints
     # ========================
     __table_args__ = (
-        # Prevent duplicate product_code per org per product type
         UniqueConstraint(
             "organization_id",
             "product_type_id",
             "product_code",
             name="uq_org_product_type_code",
         ),
-        # Prevent duplicate conceptual products
         UniqueConstraint(
             "organization_id",
             "product_signature",
@@ -133,6 +184,6 @@ class Product(Base):
         UniqueConstraint(
             "organization_id",
             "gtin",
-            name="uq_product_gtin_per_org"
+            name="uq_product_gtin_per_org",
         ),
     )

@@ -9,4 +9,5 @@ from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.product_counter import ProductTypeCounter
 from app.models.inventory import Inventory
+from app.models.product_media import ProductMedia
 from .google_taxonomy import GoogleTaxonomy
