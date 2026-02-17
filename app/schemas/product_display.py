@@ -149,3 +149,6 @@ class UpdateProductRequest(BaseModel):
     seo_keywords: Optional[List[str]] = None
     status: Optional[ProductStatusEnum] = None
     gtin: Optional[str] = Field(None, max_length=50)
+
+class ReorderMediaRequest(BaseModel):
+    ordered_media_ids: list[UUID]

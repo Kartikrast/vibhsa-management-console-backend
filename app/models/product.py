@@ -166,6 +166,12 @@ class Product(Base):
         cascade="all, delete-orphan",
     )
 
+    media = relationship(
+        "ProductMedia",
+        back_populates="product",
+        cascade="all, delete-orphan",
+    )
+
     # ========================
     # Constraints
     # ========================

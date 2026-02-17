@@ -18,9 +18,6 @@ from app.models.base import Base
 class ProductMedia(Base):
     __tablename__ = "product_media"
 
-    # ========================
-    # Primary Identity
-    # ========================
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -34,54 +31,45 @@ class ProductMedia(Base):
         index=True,
     )
 
-    product_variant_id: Mapped[uuid.UUID] = mapped_column(
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("product_variants.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
 
-    # ========================
-    # Media Info
-    # ========================
+    product_variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("product_variants.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
     media_type: Mapped[str] = mapped_column(
-        Enum(
-            "IMAGE",
-            "VIDEO",
-            name="media_type_enum",
-        ),
+        String(20),  # image | video
         nullable=False,
     )
 
-    file_url: Mapped[str] = mapped_column(
+    media_url: Mapped[str] = mapped_column(
         String(1000),
         nullable=False,
     )
 
-    sort_order: Mapped[int] = mapped_column(
+    display_order: Mapped[int] = mapped_column(
         Integer,
         default=0,
-        nullable=False,
     )
 
     is_primary: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
-        nullable=False,
     )
 
-    # ========================
-    # Metadata
-    # ========================
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
     )
 
-    # ========================
     # Relationships
-    # ========================
-    product_variant = relationship(
-        "ProductVariant",
-        back_populates="media",
-    )
+    product = relationship("Product", back_populates="media")
+    product_variant = relationship("ProductVariant", back_populates="media")

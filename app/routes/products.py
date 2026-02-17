@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+import shutil
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 from sqlalchemy import func
@@ -12,6 +15,7 @@ from app.schemas.product_display import (
     ProductListItemResponse,
     ProductDetailResponse,
     UpdateProductRequest,
+    ReorderMediaRequest,
 )
 
 from app.models.taxonomy import Category, SubCategory, SubSubCategory, ProductType, Material, Color, Size
@@ -176,3 +180,215 @@ def update_product(
     db.refresh(product)
 
     return product
+
+
+@router.post("/variants/{variant_id}/media")
+def upload_variant_media(
+    variant_id: UUID,
+    file: UploadFile = File(...),
+    media_type: str = "image",
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    variant = (
+        db.query(ProductVariant)
+        .filter(
+            ProductVariant.id == variant_id,
+            ProductVariant.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    if media_type not in ["image", "video"]:
+        raise HTTPException(status_code=400, detail="Invalid media type")
+
+    # ----------------------------------
+    # Create Folder Based on SKU
+    # ----------------------------------
+    sku = variant.sku
+    variant_folder = Path(f"media/variants/{sku}")
+    variant_folder.mkdir(parents=True, exist_ok=True)
+
+    # ----------------------------------
+    # Determine next index
+    # ----------------------------------
+    existing_media_count = (
+        db.query(ProductMedia)
+        .filter(
+            ProductMedia.product_variant_id == variant.id,
+            ProductMedia.media_type == media_type,
+        )
+        .count()
+    )
+
+    next_index = existing_media_count + 1
+
+    # ----------------------------------
+    # Generate File Name
+    # ----------------------------------
+    file_ext = file.filename.split(".")[-1].lower()
+
+    if media_type == "image":
+        file_name = f"{sku}_I{next_index}.{file_ext}"
+    else:
+        file_name = f"{sku}_V{next_index}.{file_ext}"
+
+    file_path = variant_folder / file_name
+
+    # ----------------------------------
+    # Save File
+    # ----------------------------------
+    with file_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    media_url = f"/media/variants/{sku}/{file_name}"
+
+    # ----------------------------------
+    # Save DB Record
+    # ----------------------------------
+    media = ProductMedia(
+        organization_id=organization.id,
+        product_variant_id=variant.id,
+        media_type=media_type,
+        media_url=media_url,
+        display_order=next_index,
+        is_primary=(next_index == 1 and media_type == "image"),
+    )
+
+    db.add(media)
+    db.commit()
+
+    return {
+        "message": "Media uploaded successfully",
+        "media_url": media_url,
+    }
+
+@router.get("/variants/{variant_id}/media")
+def get_variant_media(
+    variant_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    media = (
+        db.query(ProductMedia)
+        .filter(
+            ProductMedia.product_variant_id == variant_id,
+            ProductMedia.organization_id == organization.id,
+        )
+        .order_by(ProductMedia.display_order.asc())
+        .all()
+    )
+
+    return media
+
+@router.delete("/variants/{variant_id}/media/{media_id}")
+def delete_media(
+    variant_id: UUID,
+    media_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    media = db.query(ProductMedia).filter(
+        ProductMedia.id == media_id,
+        ProductMedia.product_variant_id == variant_id,
+        ProductMedia.organization_id == organization.id,
+    ).first()
+
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    # Delete file from disk
+    if os.path.exists(media.file_path):
+        os.remove(media.file_path)
+
+    was_primary = media.is_primary
+
+    db.delete(media)
+    db.flush()
+
+    # Reorder remaining media
+    remaining = (
+        db.query(ProductMedia)
+        .filter(
+            ProductMedia.product_variant_id == variant_id,
+            ProductMedia.organization_id == organization.id,
+        )
+        .order_by(ProductMedia.display_order.asc())
+        .all()
+    )
+
+    for index, item in enumerate(remaining, start=1):
+        item.display_order = index
+
+    # If primary deleted → set first image as primary
+    if was_primary and remaining:
+        remaining[0].is_primary = True
+
+    db.commit()
+
+    return {"message": "Media deleted successfully"}
+
+@router.post("/variants/{variant_id}/media/{media_id}/set-primary")
+def set_primary_media(
+    variant_id: UUID,
+    media_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    media = db.query(ProductMedia).filter(
+        ProductMedia.id == media_id,
+        ProductMedia.product_variant_id == variant_id,
+        ProductMedia.organization_id == organization.id,
+    ).first()
+
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    # Reset all to False
+    db.query(ProductMedia).filter(
+        ProductMedia.product_variant_id == variant_id,
+        ProductMedia.organization_id == organization.id,
+    ).update({"is_primary": False})
+
+    media.is_primary = True
+
+    db.commit()
+
+    return {"message": "Primary image updated"}
+
+@router.post("/variants/{variant_id}/media/reorder")
+def reorder_media(
+    variant_id: UUID,
+    payload: ReorderMediaRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    media_list = db.query(ProductMedia).filter(
+        ProductMedia.product_variant_id == variant_id,
+        ProductMedia.organization_id == organization.id,
+    ).all()
+
+    media_map = {m.id: m for m in media_list}
+
+    if set(payload.ordered_media_ids) != set(media_map.keys()):
+        raise HTTPException(status_code=400, detail="Invalid media ordering")
+
+    for index, media_id in enumerate(payload.ordered_media_ids, start=1):
+        media_map[media_id].display_order = index
+
+    db.commit()
+
+    return {"message": "Media reordered successfully"}
