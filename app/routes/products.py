@@ -22,6 +22,7 @@ from app.models.taxonomy import Category, SubCategory, SubSubCategory, ProductTy
 from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.inventory import Inventory
+from app.models.product_media import ProductMedia
 
 from app.services.product_service import create_product
 
