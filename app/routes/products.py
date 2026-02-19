@@ -171,6 +171,20 @@ def update_product(
 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    
+    if payload.gtin:
+        existing = db.query(Product).filter(
+            Product.organization_id == organization.id,
+            Product.gtin == payload.gtin,
+            Product.id != product.id
+        ).first()
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="GTIN already exists for another product"
+            )
+
 
     # 🔒 Update only provided fields
     update_data = payload.model_dump(exclude_unset=True)
@@ -181,7 +195,7 @@ def update_product(
     db.commit()
     db.refresh(product)
 
-    return product
+    return ProductDetailResponse.model_validate(product)
 
 
 @router.post("/variants/{variant_id}/media")
@@ -359,11 +373,15 @@ def set_primary_media(
 
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
+    
+    if media.media_type != "image":
+        raise HTTPException(status_code=400, detail="Only images can be set as primary")
 
     # Reset all to False
     db.query(ProductMedia).filter(
         ProductMedia.product_variant_id == variant_id,
         ProductMedia.organization_id == organization.id,
+        ProductMedia.media_type == "image",
     ).update({"is_primary": False})
 
     media.is_primary = True

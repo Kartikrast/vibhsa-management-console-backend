@@ -151,4 +151,4 @@ class UpdateProductRequest(BaseModel):
     gtin: Optional[str] = Field(None, max_length=50)
 
 class ReorderMediaRequest(BaseModel):
-    ordered_media_ids: list[UUID]
+    ordered_media_ids: list[UUID]    
