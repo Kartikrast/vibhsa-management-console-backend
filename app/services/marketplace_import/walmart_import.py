@@ -51,7 +51,7 @@ def import_walmart_listings(
             existing.gtin = gtin
             existing.listing_status = listing_status
             existing.raw_payload = item
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(timezone.utc)
             updated_count += 1
 
         else:

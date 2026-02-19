@@ -16,6 +16,7 @@ from app.schemas.product_display import (
     ProductDetailResponse,
     UpdateProductRequest,
     ReorderMediaRequest,
+    ProductMediaResponse,
 )
 
 from app.models.taxonomy import Category, SubCategory, SubSubCategory, ProductType, Material, Color, Size
@@ -172,7 +173,7 @@ def update_product(
         raise HTTPException(status_code=404, detail="Product not found")
 
     # 🔒 Update only provided fields
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
         setattr(product, field, value)
@@ -215,13 +216,12 @@ def upload_variant_media(
     variant_folder = Path(f"media/variants/{sku}")
     variant_folder.mkdir(parents=True, exist_ok=True)
 
-    # ----------------------------------
     # Determine next index
-    # ----------------------------------
     existing_media_count = (
         db.query(ProductMedia)
         .filter(
             ProductMedia.product_variant_id == variant.id,
+            ProductMedia.organization_id == organization.id,
             ProductMedia.media_type == media_type,
         )
         .count()
@@ -229,9 +229,7 @@ def upload_variant_media(
 
     next_index = existing_media_count + 1
 
-    # ----------------------------------
     # Generate File Name
-    # ----------------------------------
     file_ext = file.filename.split(".")[-1].lower()
 
     if media_type == "image":
@@ -241,17 +239,13 @@ def upload_variant_media(
 
     file_path = variant_folder / file_name
 
-    # ----------------------------------
     # Save File
-    # ----------------------------------
     with file_path.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     media_url = f"/media/variants/{sku}/{file_name}"
 
-    # ----------------------------------
     # Save DB Record
-    # ----------------------------------
     media = ProductMedia(
         organization_id=organization.id,
         product_variant_id=variant.id,
@@ -269,7 +263,7 @@ def upload_variant_media(
         "media_url": media_url,
     }
 
-@router.get("/variants/{variant_id}/media")
+@router.get("/variants/{variant_id}/media", response_model=list[ProductMediaResponse])
 def get_variant_media(
     variant_id: UUID,
     context=Depends(get_current_context),
@@ -287,7 +281,7 @@ def get_variant_media(
         .all()
     )
 
-    return media
+    return [ProductMediaResponse.model_validate(m) for m in media]
 
 @router.delete("/variants/{variant_id}/media/{media_id}")
 def delete_media(
@@ -308,10 +302,18 @@ def delete_media(
         raise HTTPException(status_code=404, detail="Media not found")
 
     # Delete file from disk
-    if os.path.exists(media.file_path):
-        os.remove(media.file_path)
+    media_base_dir = Path("media").resolve()
+    media_rel_path = Path(str(media.media_url).lstrip("/"))
+    file_path = (Path(".") / media_rel_path).resolve()
+
+    if media_base_dir in file_path.parents and file_path.is_file():
+        try:
+            file_path.unlink()
+        except OSError:
+            pass
 
     was_primary = media.is_primary
+    deleted_media_type = media.media_type
 
     db.delete(media)
     db.flush()
@@ -322,6 +324,7 @@ def delete_media(
         .filter(
             ProductMedia.product_variant_id == variant_id,
             ProductMedia.organization_id == organization.id,
+            ProductMedia.media_type == deleted_media_type,
         )
         .order_by(ProductMedia.display_order.asc())
         .all()
@@ -331,8 +334,9 @@ def delete_media(
         item.display_order = index
 
     # If primary deleted → set first image as primary
-    if was_primary and remaining:
-        remaining[0].is_primary = True
+    if deleted_media_type == "image":
+        if was_primary and remaining:
+            remaining[0].is_primary = True
 
     db.commit()
 

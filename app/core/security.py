@@ -27,9 +27,9 @@ def create_access_token(
     expires_delta: timedelta | None = None,
 ) -> str:
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(
+        expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
@@ -51,7 +51,7 @@ def create_refresh_token(
     subject: Any,
     expires_days: int = 7,
 ) -> str:
-    expire = datetime.utcnow() + timedelta(days=expires_days)
+    expire = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
     to_encode = {
         "sub": str(subject),

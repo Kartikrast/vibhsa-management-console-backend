@@ -60,7 +60,7 @@ def connect_walmart(
             detail="Invalid Walmart credentials",
         )
 
-    expiry = datetime.utcnow() + timedelta(seconds=token_data["expires_in"])
+    expiry = datetime.now(timezone.utc) + timedelta(seconds=token_data["expires_in"])
 
     account = MarketplaceAccount(
         organization_id=organization.id,

@@ -38,8 +38,8 @@ class InventoryResponse(BaseModel):
 class ProductMediaResponse(BaseModel):
     id: UUID
     media_type: str
-    file_url: str
-    sort_order: int
+    media_url: str
+    display_order: int
     is_primary: bool
 
     class Config:

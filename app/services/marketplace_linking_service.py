@@ -54,7 +54,7 @@ def link_existing_listing(
 
     listing.product_variant_id = product_variant_id
     listing.import_status = "LINKED"
-    listing.updated_at = datetime.utcnow()
+    listing.updated_at = datetime.now(timezone.utc)
 
     db.commit()
 
