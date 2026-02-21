@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     WALMART_SANDBOX_URL: str
     WALMART_PRODUCTION_URL: str
 
+    ORDER_SYNC_INTERVAL_MINUTES: int = 15
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

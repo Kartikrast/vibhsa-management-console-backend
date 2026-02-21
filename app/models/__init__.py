@@ -11,3 +11,4 @@ from app.models.product_counter import ProductTypeCounter
 from app.models.inventory import Inventory
 from app.models.product_media import ProductMedia
 from .google_taxonomy import GoogleTaxonomy
+from app.models.order import Order, OrderLine, OrderStatusLog

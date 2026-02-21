@@ -1,14 +1,21 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.config import get_settings
 from app.routes import auth
 from app.routes import marketplaces
 from app.routes import products
 from app.routes import taxonomy
+from app.routes import orders
+from app.routes import webhooks
+from app.tasks.order_sync import sync_all_orders
+
+logger = logging.getLogger(__name__)
 
 MEDIA_DIR = Path("media")
 MEDIA_DIR.mkdir(exist_ok=True)
@@ -25,6 +32,8 @@ app.include_router(auth.router)
 app.include_router(marketplaces.router)
 app.include_router(products.router)
 app.include_router(taxonomy.router)
+app.include_router(orders.router)
+app.include_router(webhooks.router)
 
 # allow CORS origins
 app.add_middleware(
@@ -36,6 +45,35 @@ app.add_middleware(
 )
 
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+
+# ========================
+# PERIODIC ORDER SYNC
+# ========================
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    sync_all_orders,
+    "interval",
+    minutes=settings.ORDER_SYNC_INTERVAL_MINUTES,
+    id="order_sync",
+    replace_existing=True,
+)
+
+
+@app.on_event("startup")
+def start_scheduler():
+    scheduler.start()
+    logger.info(
+        "Order sync scheduler started (every %d min)",
+        settings.ORDER_SYNC_INTERVAL_MINUTES,
+    )
+
+
+@app.on_event("shutdown")
+def stop_scheduler():
+    scheduler.shutdown(wait=False)
+    logger.info("Order sync scheduler stopped")
+
 
 @app.get("/")
 def health_check():

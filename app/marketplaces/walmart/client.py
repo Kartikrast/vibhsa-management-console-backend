@@ -119,3 +119,108 @@ class WalmartClient:
             endpoint=endpoint,
             db=db,
         )
+
+    # ========================
+    # ORDER MANAGEMENT
+    # ========================
+
+    def get_released_orders(self, db, limit: int = 100):
+        """
+        Fetch orders with line items in Created status that are released for processing.
+        GET /v3/orders/released
+        """
+        endpoint = f"/v3/orders/released?limit={limit}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def get_all_orders(
+        self,
+        db,
+        status: str | None = None,
+        created_start_date: str | None = None,
+        created_end_date: str | None = None,
+        limit: int = 100,
+    ):
+        """
+        Fetch orders with optional filters.
+        GET /v3/orders
+        """
+        params = [f"limit={limit}"]
+        if status:
+            params.append(f"status={status}")
+        if created_start_date:
+            params.append(f"createdStartDate={created_start_date}")
+        if created_end_date:
+            params.append(f"createdEndDate={created_end_date}")
+        endpoint = f"/v3/orders?{'&'.join(params)}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def get_order(self, db, purchase_order_id: str):
+        """
+        Fetch a single order by purchaseOrderId.
+        GET /v3/orders/{purchaseOrderId}
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def acknowledge_order(self, db, purchase_order_id: str):
+        """
+        Acknowledge a created order.
+        POST /v3/orders/{purchaseOrderId}/acknowledge
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}/acknowledge"
+        return self.request(method="POST", endpoint=endpoint, db=db)
+
+    def ship_order(self, db, purchase_order_id: str, order_lines: list[dict]):
+        """
+        Ship order lines with tracking info.
+        POST /v3/orders/{purchaseOrderId}/shipping
+
+        order_lines format:
+        [
+            {
+                "lineNumber": "1",
+                "trackingInfo": {
+                    "shipDateTime": "1478347200000",
+                    "carrierName": "FedEx",
+                    "methodCode": "VALUE",
+                    "trackingNumber": "TRACK123",
+                    "trackingURL": "https://..."
+                }
+            }
+        ]
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}/shipping"
+        payload = {"orderLines": order_lines}
+        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+
+    def cancel_order(self, db, purchase_order_id: str, order_lines: list[dict]):
+        """
+        Cancel order lines.
+        POST /v3/orders/{purchaseOrderId}/cancel
+
+        order_lines format:
+        [
+            {
+                "orderLineStatuses": {
+                    "orderLineStatus": [
+                        {
+                            "status": "Cancelled",
+                            "cancellationReason": "SELLER_CANCEL_OUT_OF_STOCK",
+                            "statusQuantity": {"unitOfMeasurement": "EACH"}
+                        }
+                    ]
+                }
+            }
+        ]
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}/cancel"
+        payload = {"orderCancellation": {"orderLines": {"orderLine": order_lines}}}
+        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+
+    def refund_order(self, db, purchase_order_id: str, refund_payload: dict):
+        """
+        Refund order lines.
+        POST /v3/orders/{purchaseOrderId}/refund
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}/refund"
+        return self.request(method="POST", endpoint=endpoint, db=db, json=refund_payload)
