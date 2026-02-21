@@ -6,7 +6,7 @@ from app.models.product_variant import ProductVariant
 from app.models.inventory import Inventory
 from fastapi import HTTPException
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services.product_service import (
     create_product,
     create_variant_for_existing_product,

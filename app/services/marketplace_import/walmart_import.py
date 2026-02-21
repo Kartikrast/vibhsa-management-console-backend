@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.models.marketplace_listing import MarketplaceListing
 from app.marketplaces.walmart.client import WalmartClient
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def import_walmart_listings(
