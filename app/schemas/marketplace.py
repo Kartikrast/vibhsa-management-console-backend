@@ -7,6 +7,14 @@ class WalmartConnectRequest(BaseModel):
     client_id: str
     client_secret: str
 
+class AmazonConnectRequest(BaseModel):
+    seller_id: str
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    region: str = "US"
+
+
 class WalmartItem(BaseModel):
     sku: Optional[str]
     productName: Optional[str]

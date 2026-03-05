@@ -42,6 +42,13 @@ class MarketplaceAccount(Base):
         nullable=False,
     )
 
+    region: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="US",
+        server_default="US",
+    )
+
     client_id: Mapped[str] = mapped_column(
         String(255),
         nullable=False,

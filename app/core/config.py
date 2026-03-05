@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     WALMART_SANDBOX_URL: str
     WALMART_PRODUCTION_URL: str
 
+    AMAZON_ENV: str = "sandbox"
+    AMAZON_SANDBOX_US_URL: str
+    AMAZON_PRODUCTION_US_URL: str
+    AMAZON_LWA_ENDPOINT: str = "https://api.amazon.com/auth/o2/token"
+
     ORDER_SYNC_INTERVAL_MINUTES: int = 15
 
 

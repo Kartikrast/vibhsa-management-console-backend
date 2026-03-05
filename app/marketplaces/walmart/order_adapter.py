@@ -160,6 +160,102 @@ class WalmartOrderAdapter(MarketplaceOrderAdapter):
         )
 
     # ========================
+    # SHIPPING LABELS
+    # ========================
+
+    def create_shipping_label(self, db: Session, external_order_id: str, label_data: dict) -> dict:
+        """
+        Create a shipping label via Ship With Walmart.
+
+        label_data format (internal):
+        {
+            "package_type": "CUSTOM_PACKAGE",
+            "box_weight": 1,
+            "box_length": 10,
+            "box_width": 8,
+            "box_height": 4,
+            "box_dimension_unit": "IN",
+            "box_weight_unit": "LB",
+            "box_items": [
+                {"sku": "SKU123", "quantity": 1, "country_of_origin": "US"}
+            ],
+            "from_address": {
+                "contact_name": "Seller",
+                "company_name": "Company",
+                "address_line1": "123 Main St",
+                "city": "City",
+                "state": "CA",
+                "postal_code": "90001",
+                "country": "US",
+                "phone": "5551234567",
+            },
+        }
+        """
+        walmart_box_items = []
+        for item in label_data.get("box_items", []):
+            walmart_box_items.append({
+                "sku": item["sku"],
+                "quantity": item.get("quantity", 1),
+                "countryOfOrigin": item.get("country_of_origin", "US"),
+                "harmonizedCode": item.get("harmonized_code", ""),
+            })
+
+        from_addr = label_data.get("from_address", {})
+
+        walmart_request = {
+            "packageType": label_data.get("package_type", "CUSTOM_PACKAGE"),
+            "boxDimensions": {
+                "boxDimensionUnit": label_data.get("box_dimension_unit", "IN"),
+                "boxWeightUnit": label_data.get("box_weight_unit", "LB"),
+                "boxWeight": label_data.get("box_weight", 1),
+                "boxLength": label_data.get("box_length", 10),
+                "boxWidth": label_data.get("box_width", 8),
+                "boxHeight": label_data.get("box_height", 4),
+            },
+            "boxItems": walmart_box_items,
+            "fromAddress": {
+                "contactName": from_addr.get("contact_name", ""),
+                "companyName": from_addr.get("company_name", ""),
+                "addressLine1": from_addr.get("address_line1", ""),
+                "addressLine2": from_addr.get("address_line2", ""),
+                "city": from_addr.get("city", ""),
+                "state": from_addr.get("state", ""),
+                "postalCode": from_addr.get("postal_code", ""),
+                "country": from_addr.get("country", "US"),
+                "phone": from_addr.get("phone", ""),
+            },
+        }
+
+        return self.client.create_shipping_label(
+            db=db,
+            purchase_order_id=external_order_id,
+            label_request=walmart_request,
+        )
+
+    def get_shipping_label(self, db: Session, external_order_id: str) -> dict:
+        """Get label details for a purchase order."""
+        return self.client.get_shipping_label(
+            db=db,
+            purchase_order_id=external_order_id,
+        )
+
+    def download_shipping_label(self, db: Session, carrier: str, tracking_number: str) -> bytes:
+        """Download the label PDF as raw bytes."""
+        return self.client.download_shipping_label(
+            db=db,
+            carrier_short_name=carrier,
+            tracking_no=tracking_number,
+        )
+
+    def void_shipping_label(self, db: Session, carrier: str, tracking_number: str) -> dict:
+        """Void a shipping label."""
+        return self.client.void_shipping_label(
+            db=db,
+            carrier_short_name=carrier,
+            tracking_no=tracking_number,
+        )
+
+    # ========================
     # NORMALIZATION
     # ========================
 

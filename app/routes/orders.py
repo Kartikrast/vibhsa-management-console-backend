@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from uuid import UUID
 
@@ -16,6 +17,9 @@ from app.schemas.order import (
     CancelOrderRequest,
     RefundOrderRequest,
     LinkOrderLineRequest,
+    CreateShippingLabelRequest,
+    DownloadShippingLabelRequest,
+    VoidShippingLabelRequest,
 )
 from app.services.order_service import (
     acknowledge_order,
@@ -25,6 +29,7 @@ from app.services.order_service import (
     link_order_line_to_variant,
 )
 from app.services.order_import.order_import_service import import_orders
+from app.marketplaces.adapter_registry import get_order_adapter
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -308,3 +313,224 @@ def get_order_logs(
     )
 
     return logs
+
+
+# ========================
+# SHIPPING LABELS
+# ========================
+
+@router.post("/{order_id}/shipping-label")
+def create_shipping_label_route(
+    order_id: UUID,
+    payload: CreateShippingLabelRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Create a shipping label for an order via Ship With Walmart."""
+    organization = context["organization"]
+
+    order = (
+        db.query(Order)
+        .filter(
+            Order.id == order_id,
+            Order.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    account = (
+        db.query(MarketplaceAccount)
+        .filter(MarketplaceAccount.id == order.marketplace_account_id)
+        .first()
+    )
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace account not found",
+        )
+
+    adapter = get_order_adapter(order.marketplace, account)
+
+    if not hasattr(adapter, "create_shipping_label"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Shipping labels not supported for {order.marketplace}",
+        )
+
+    label_data = payload.model_dump()
+    result = adapter.create_shipping_label(
+        db=db,
+        external_order_id=order.external_order_id,
+        label_data=label_data,
+    )
+
+    return result
+
+
+@router.get("/{order_id}/shipping-label")
+def get_shipping_label_route(
+    order_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get shipping label details for an order."""
+    organization = context["organization"]
+
+    order = (
+        db.query(Order)
+        .filter(
+            Order.id == order_id,
+            Order.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    account = (
+        db.query(MarketplaceAccount)
+        .filter(MarketplaceAccount.id == order.marketplace_account_id)
+        .first()
+    )
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace account not found",
+        )
+
+    adapter = get_order_adapter(order.marketplace, account)
+
+    if not hasattr(adapter, "get_shipping_label"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Shipping labels not supported for {order.marketplace}",
+        )
+
+    return adapter.get_shipping_label(
+        db=db,
+        external_order_id=order.external_order_id,
+    )
+
+
+@router.post("/{order_id}/shipping-label/download")
+def download_shipping_label_route(
+    order_id: UUID,
+    payload: DownloadShippingLabelRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Download the shipping label PDF for an order."""
+    organization = context["organization"]
+
+    order = (
+        db.query(Order)
+        .filter(
+            Order.id == order_id,
+            Order.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    account = (
+        db.query(MarketplaceAccount)
+        .filter(MarketplaceAccount.id == order.marketplace_account_id)
+        .first()
+    )
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace account not found",
+        )
+
+    adapter = get_order_adapter(order.marketplace, account)
+
+    if not hasattr(adapter, "download_shipping_label"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Shipping label download not supported for {order.marketplace}",
+        )
+
+    pdf_bytes = adapter.download_shipping_label(
+        db=db,
+        carrier=payload.carrier,
+        tracking_number=payload.tracking_number,
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="label_{order.external_order_id}_{payload.tracking_number}.pdf"'
+        },
+    )
+
+
+@router.post("/{order_id}/shipping-label/void")
+def void_shipping_label_route(
+    order_id: UUID,
+    payload: VoidShippingLabelRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Void/cancel a shipping label."""
+    organization = context["organization"]
+
+    order = (
+        db.query(Order)
+        .filter(
+            Order.id == order_id,
+            Order.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    account = (
+        db.query(MarketplaceAccount)
+        .filter(MarketplaceAccount.id == order.marketplace_account_id)
+        .first()
+    )
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace account not found",
+        )
+
+    adapter = get_order_adapter(order.marketplace, account)
+
+    if not hasattr(adapter, "void_shipping_label"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Shipping label void not supported for {order.marketplace}",
+        )
+
+    return adapter.void_shipping_label(
+        db=db,
+        carrier=payload.carrier,
+        tracking_number=payload.tracking_number,
+    )

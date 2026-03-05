@@ -224,3 +224,108 @@ class WalmartClient:
         """
         endpoint = f"/v3/orders/{purchase_order_id}/refund"
         return self.request(method="POST", endpoint=endpoint, db=db, json=refund_payload)
+
+    # ========================
+    # SHIPPING LABELS (Ship With Walmart)
+    # ========================
+
+    def request_raw(self, method, endpoint, db, **kwargs):
+        """
+        Like request(), but returns the raw httpx.Response instead of .json().
+        Used for binary downloads (PDF labels).
+        """
+        self._refresh_token_if_needed(db)
+
+        url = f"{self.base_url}{endpoint}"
+
+        response = httpx.request(
+            method,
+            url,
+            headers=self._get_headers(),
+            **kwargs,
+        )
+
+        if response.status_code >= 400:
+            raise Exception(f"Walmart API error: {response.text}")
+
+        return response
+
+    def create_shipping_label(self, db, purchase_order_id: str, label_request: dict):
+        """
+        Create a shipping label for an order.
+        POST /v3/shipping/labels
+
+        label_request format:
+        {
+            "packageType": "CUSTOM_PACKAGE",
+            "boxDimensions": {
+                "boxDimensionUnit": "IN",
+                "boxWeightUnit": "LB",
+                "boxWeight": 1,
+                "boxLength": 10,
+                "boxWidth": 8,
+                "boxHeight": 4,
+            },
+            "boxItems": [
+                {
+                    "sku": "SKU123",
+                    "quantity": 1,
+                    "countryOfOrigin": "US",
+                    "harmonizedCode": "",
+                }
+            ],
+            "fromAddress": {
+                "contactName": "Seller Name",
+                "companyName": "Company",
+                "addressLine1": "123 Main St",
+                "city": "City",
+                "state": "CA",
+                "postalCode": "90001",
+                "country": "US",
+                "phone": "5551234567",
+            },
+        }
+        """
+        payload = {
+            "purchaseOrderId": purchase_order_id,
+            **label_request,
+        }
+        endpoint = "/v3/shipping/labels"
+        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+
+    def get_shipping_label(self, db, purchase_order_id: str):
+        """
+        Get label details for a purchase order.
+        GET /v3/shipping/labels/purchase-orders/{purchaseOrderId}
+        """
+        endpoint = f"/v3/shipping/labels/purchase-orders/{purchase_order_id}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def download_shipping_label(self, db, carrier_short_name: str, tracking_no: str) -> bytes:
+        """
+        Download the shipping label PDF.
+        GET /v3/shipping/labels/carriers/{carrierShortName}/trackings/{trackingNo}
+
+        Returns raw PDF bytes.
+        """
+        endpoint = f"/v3/shipping/labels/carriers/{carrier_short_name}/trackings/{tracking_no}"
+        self._refresh_token_if_needed(db)
+
+        url = f"{self.base_url}{endpoint}"
+        headers = self._get_headers()
+        headers["Accept"] = "application/pdf"
+
+        response = httpx.get(url, headers=headers)
+
+        if response.status_code >= 400:
+            raise Exception(f"Walmart label download error: {response.text}")
+
+        return response.content
+
+    def void_shipping_label(self, db, carrier_short_name: str, tracking_no: str):
+        """
+        Void/cancel a shipping label.
+        DELETE /v3/shipping/labels/carriers/{carrierShortName}/trackings/{trackingNo}
+        """
+        endpoint = f"/v3/shipping/labels/carriers/{carrier_short_name}/trackings/{tracking_no}"
+        return self.request(method="DELETE", endpoint=endpoint, db=db)

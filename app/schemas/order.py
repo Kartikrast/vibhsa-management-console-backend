@@ -117,6 +117,51 @@ class LinkOrderLineRequest(BaseModel):
 
 
 # ========================
+# SHIPPING LABEL SCHEMAS
+# ========================
+
+class BoxItemRequest(BaseModel):
+    sku: str
+    quantity: int = 1
+    country_of_origin: str = "US"
+    harmonized_code: str = ""
+
+
+class FromAddressRequest(BaseModel):
+    contact_name: str
+    company_name: str = ""
+    address_line1: str
+    address_line2: str = ""
+    city: str
+    state: str
+    postal_code: str
+    country: str = "US"
+    phone: str = ""
+
+
+class CreateShippingLabelRequest(BaseModel):
+    package_type: str = "CUSTOM_PACKAGE"
+    box_weight: float = 1
+    box_length: float = 10
+    box_width: float = 8
+    box_height: float = 4
+    box_dimension_unit: str = "IN"
+    box_weight_unit: str = "LB"
+    box_items: list[BoxItemRequest]
+    from_address: FromAddressRequest
+
+
+class DownloadShippingLabelRequest(BaseModel):
+    carrier: str
+    tracking_number: str
+
+
+class VoidShippingLabelRequest(BaseModel):
+    carrier: str
+    tracking_number: str
+
+
+# ========================
 # STATUS LOG SCHEMA
 # ========================
 
