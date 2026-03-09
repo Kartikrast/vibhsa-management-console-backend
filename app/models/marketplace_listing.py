@@ -92,6 +92,11 @@ class MarketplaceListing(Base):
         index=True,
     )
 
+    url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
     # ========================
     # Commercial Data
     # ========================
@@ -105,6 +110,11 @@ class MarketplaceListing(Base):
         String(10),
         default="USD",
         nullable=False,
+    )
+
+    marketplace_product_type: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
     # ========================

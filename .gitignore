@@ -14,3 +14,6 @@ wheels/
 
 # Jupyter Notebooks
 *.ipynb
+
+get_spec.json
+walmart_taxonomy.json

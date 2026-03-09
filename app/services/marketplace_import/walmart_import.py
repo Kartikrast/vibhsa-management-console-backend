@@ -5,6 +5,10 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 
+def generate_walmart_item_url(external_id):
+    return f"https://www.walmart.com/ip/{external_id}"
+
+
 def import_walmart_listings(
     db: Session,
     organization_id,
@@ -24,7 +28,7 @@ def import_walmart_listings(
         external_id = item.get("wpid")
         sku = item.get("sku")
         title = item.get("productName")
-        product_type = item.get("productType")
+        marketplace_product_type = item.get("productType")
 
         price_data = item.get("price") or {}
         price = price_data.get("amount")
@@ -50,8 +54,9 @@ def import_walmart_listings(
             existing.gtin = gtin
             existing.listing_status = listing_status
             existing.raw_payload = item
-            existing.product_type = product_type
+            existing.marketplace_product_type = marketplace_product_type
             existing.updated_at = datetime.now(timezone.utc)
+            existing.url = generate_walmart_item_url(external_id)
             updated_count += 1
 
         else:
@@ -68,7 +73,8 @@ def import_walmart_listings(
                 listing_status=listing_status,
                 import_status="UNLINKED",
                 raw_payload=item,
-                product_type=product_type,
+                marketplace_product_type=marketplace_product_type,
+                url=generate_walmart_item_url(external_id),
             )
 
             db.add(listing)

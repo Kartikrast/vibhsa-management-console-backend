@@ -92,6 +92,7 @@ class ProductDetailResponse(BaseModel):
     meta_title: Optional[str]
     meta_description: Optional[str]
     seo_keywords: Optional[List[str]]
+    product_type: Optional[str] = None
     status: str
 
     gtin: Optional[str]
@@ -99,7 +100,7 @@ class ProductDetailResponse(BaseModel):
     category: SimpleTaxonomyResponse
     subcategory: SimpleTaxonomyResponse
     subsubcategory: Optional[SimpleTaxonomyResponse] = None
-    product_type: SimpleTaxonomyResponse
+    product_type_rel: SimpleTaxonomyResponse = Field(validation_alias="product_type_rel")
     material: SimpleTaxonomyResponse
 
     variants: List[ProductVariantResponse]

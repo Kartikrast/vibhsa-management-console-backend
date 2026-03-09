@@ -17,6 +17,8 @@ class MarketplaceListingResponse(BaseModel):
     import_status: str
     product_variant_id: Optional[UUID]
     created_at: datetime
+    marketplace_product_type: Optional[str]
+    url: Optional[str]
 
     class Config:
         from_attributes = True
