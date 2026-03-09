@@ -121,6 +121,11 @@ class Product(Base):
         nullable=True,
     )
 
+    product_type: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         Enum(
             "DRAFT",
@@ -157,7 +162,7 @@ class Product(Base):
     subcategory = relationship("SubCategory")
     subsubcategory = relationship("SubSubCategory")
 
-    product_type = relationship("ProductType")
+    product_type_rel = relationship("ProductType")
     material = relationship("Material")
 
     variants = relationship(

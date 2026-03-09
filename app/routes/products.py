@@ -128,7 +128,7 @@ def get_product_detail(
             joinedload(Product.category),
             joinedload(Product.subcategory),
             joinedload(Product.subsubcategory),
-            joinedload(Product.product_type),
+            joinedload(Product.product_type_rel),
             joinedload(Product.material),
             joinedload(Product.variants)
             .joinedload(ProductVariant.color),

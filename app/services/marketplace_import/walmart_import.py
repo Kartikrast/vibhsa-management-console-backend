@@ -29,7 +29,6 @@ def import_walmart_listings(
         price_data = item.get("price") or {}
         price = price_data.get("amount")
         currency = price_data.get("currency", "USD")
-
         gtin = item.get("gtin") or item.get("upc")
 
         listing_status = item.get("lifecycleStatus", "UNKNOWN")
@@ -51,6 +50,7 @@ def import_walmart_listings(
             existing.gtin = gtin
             existing.listing_status = listing_status
             existing.raw_payload = item
+            existing.product_type = product_type
             existing.updated_at = datetime.now(timezone.utc)
             updated_count += 1
 
@@ -68,6 +68,7 @@ def import_walmart_listings(
                 listing_status=listing_status,
                 import_status="UNLINKED",
                 raw_payload=item,
+                product_type=product_type,
             )
 
             db.add(listing)

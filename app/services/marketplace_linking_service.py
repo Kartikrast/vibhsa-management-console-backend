@@ -133,7 +133,7 @@ def generate_internal_from_listing(
             category=product.category,
             subcategory=product.subcategory,
             subsubcategory=product.subsubcategory,
-            product_type=product.product_type,
+            product_type=product.product_type_rel,
             color=color,
             size=size,
         )
