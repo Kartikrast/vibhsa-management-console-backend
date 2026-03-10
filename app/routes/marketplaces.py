@@ -6,13 +6,13 @@ from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.core.dependencies import get_current_context
 from app.schemas.marketplace import WalmartConnectRequest, AmazonConnectRequest
-from app.schemas.marketplace_listing import MarketplaceListingResponse, ImportResponse
+from app.schemas.marketplace_listing import MarketplaceListingResponse, ImportResponse, MarketplaceInfoResponse
 from app.schemas.listing_link import ListingLinkResponse, LinkExistingListingRequest, GenerateFromListingRequest
 from app.models.marketplace_account import MarketplaceAccount
 from app.models.marketplace_listing import MarketplaceListing
 from app.marketplaces.walmart.client import WalmartClient
 from app.marketplaces.amazon.client import AmazonClient
-from app.services.marketplace_import.walmart_import import import_walmart_listings
+from app.services.marketplace_import.walmart_import import import_walmart_listings, get_walmart_inventory
 from app.services.marketplace_import.amazon_import import import_amazon_listings
 from app.services.marketplace_linking_service import link_existing_listing, generate_internal_from_listing
 from app.models.taxonomy import (
@@ -279,6 +279,48 @@ def get_marketplace_listings(
     )
 
     return listings
+
+@router.get("/marketplace-info", response_model=MarketplaceInfoResponse)
+def get_marketplace_info(
+    listing_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.organization_id == organization.id,
+        MarketplaceListing.id == listing_id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart not connected")
+    
+    inventory_data = get_walmart_inventory(db=db, marketplace_account=account, sku=listing.marketplace_sku)
+    data = {
+        "marketplace": listing.marketplace,
+        "marketplace_sku": listing.marketplace_sku,
+        "external_id": listing.external_id,
+        "title": listing.title,
+        "price": listing.price,
+        "currency": listing.currency,
+        "url": listing.url,
+        "marketplace_product_type": listing.marketplace_product_type,
+        "import_status": listing.import_status,
+        "gtin": listing.gtin,
+        "listing_status": listing.listing_status,
+        "inventory_quantity": inventory_data.get("available_quantity"),
+    }
+
+    return data
 
 @router.post(
     "/listings/{listing_id}/link-existing",

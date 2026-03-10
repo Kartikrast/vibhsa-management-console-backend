@@ -119,6 +119,25 @@ class WalmartClient:
             endpoint=endpoint,
             db=db,
         )
+    
+    def get_item(self, db, sku: str):
+        """
+        Fetch item details by SKU
+        GET /v3/items/{sku}
+        """
+        endpoint = f"/v3/items/{sku}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    # ========================
+    # INVENTORY MANAGEMENT
+    # ========================
+    def get_inventory(self, db, sku: str):
+        """
+        Fetch inventory details for a SKU.
+        GET /v3/inventory?sku={sku}
+        """
+        endpoint = f"/v3/inventory?sku={sku}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
 
     # ========================
     # ORDER MANAGEMENT

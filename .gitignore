@@ -17,3 +17,6 @@ wheels/
 
 get_spec.json
 walmart_taxonomy.json
+
+# media files
+media/

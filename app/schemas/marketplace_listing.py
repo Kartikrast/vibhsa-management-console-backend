@@ -32,3 +32,20 @@ class ImportResponse(BaseModel):
 class LinkListingRequest(BaseModel):
     product_variant_id: UUID
 
+class MarketplaceInfoResponse(BaseModel):
+    marketplace: str
+    marketplace_sku: Optional[str]
+    external_id: str
+    title: Optional[str]
+    price: Optional[Decimal]
+    currency: str
+    url: Optional[str]
+    marketplace_product_type: Optional[str]
+    import_status: str
+    gtin: Optional[str]
+    listing_status: Optional[str]
+    inventory_quantity: Optional[int]
+
+    class Config:
+        from_attributes = True
+

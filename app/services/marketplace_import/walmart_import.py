@@ -88,3 +88,12 @@ def import_walmart_listings(
         "skipped": len(items) - imported_count - updated_count,
         "message": "Import completed",
     }
+
+def get_walmart_inventory(db: Session, marketplace_account, sku):
+    client = WalmartClient(marketplace_account)
+
+    response = client.get_inventory(db=db, sku=sku)
+    sku = response.get("sku")
+    available_quantity = response.get("quantity", {}).get("amount", 0)
+
+    return {"sku": sku, "available_quantity": available_quantity}
