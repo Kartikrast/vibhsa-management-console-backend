@@ -7,14 +7,24 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_context
 from app.schemas.marketplace import WalmartConnectRequest, AmazonConnectRequest
 from app.schemas.marketplace_listing import MarketplaceListingResponse, ImportResponse, MarketplaceInfoResponse
-from app.schemas.listing_link import ListingLinkResponse, LinkExistingListingRequest, GenerateFromListingRequest
+from app.schemas.listing_link import (
+    ListingLinkResponse,
+    LinkExistingListingRequest,
+    GenerateFromListingRequest,
+    InventoryUpdateRequest,
+    UpdateMarketplaceInventoryRequest,
+    MarketplaceInventoryResponse,
+    ListingInventoryResponse,
+)
 from app.models.marketplace_account import MarketplaceAccount
 from app.models.marketplace_listing import MarketplaceListing
+from app.models.inventory import Inventory
 from app.marketplaces.walmart.client import WalmartClient
 from app.marketplaces.amazon.client import AmazonClient
 from app.services.marketplace_import.walmart_import import import_walmart_listings, get_walmart_inventory
 from app.services.marketplace_import.amazon_import import import_amazon_listings
 from app.services.marketplace_linking_service import link_existing_listing, generate_internal_from_listing
+from app.services.inventory_service import update_marketplace_inventory
 from app.models.taxonomy import (
     Category,
     SubCategory,
@@ -369,6 +379,28 @@ def generate_internal(
     if not all([category, subcategory, product_type, material]):
         raise HTTPException(status_code=400, detail="Invalid taxonomy selection")
 
+    # --------------------------
+    # Resolve initial inventory
+    # --------------------------
+    initial_quantity = 0
+
+    if payload.sync_inventory_from_marketplace:
+        listing = db.query(MarketplaceListing).filter(
+            MarketplaceListing.id == listing_id,
+            MarketplaceListing.organization_id == organization.id,
+        ).first()
+
+        if not listing:
+            raise HTTPException(status_code=404, detail="Listing not found")
+
+        initial_quantity = _fetch_marketplace_inventory(
+            db=db,
+            organization_id=organization.id,
+            listing=listing,
+        )
+    elif payload.initial_quantity is not None:
+        initial_quantity = payload.initial_quantity
+
     return generate_internal_from_listing(
         db=db,
         organization_id=organization.id,
@@ -380,4 +412,217 @@ def generate_internal(
         material=material,
         color=color,
         size=size,
+        initial_quantity=initial_quantity,
+    )
+
+
+def _fetch_marketplace_inventory(
+    db: Session,
+    organization_id: UUID,
+    listing: MarketplaceListing,
+) -> int:
+    """Fetch live inventory from the listing's marketplace."""
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.id == listing.marketplace_account_id,
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Marketplace account not found")
+
+    if listing.marketplace == "walmart":
+        inventory_data = get_walmart_inventory(
+            db=db,
+            marketplace_account=account,
+            sku=listing.marketplace_sku,
+        )
+        return inventory_data.get("available_quantity", 0)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Inventory sync not supported for {listing.marketplace}",
+        )
+
+
+@router.get(
+    "/listings/{listing_id}/inventory",
+    response_model=ListingInventoryResponse,
+)
+def get_listing_inventory(
+    listing_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get both internal (DB) and marketplace (live API) inventory for a listing."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    # Internal inventory from DB
+    internal_available = 0
+    internal_reserved = 0
+
+    if listing.product_variant_id:
+        inventory = db.query(Inventory).filter(
+            Inventory.organization_id == organization.id,
+            Inventory.product_variant_id == listing.product_variant_id,
+            Inventory.location_name == "default",
+        ).first()
+
+        if inventory:
+            internal_available = inventory.quantity_available
+            internal_reserved = inventory.quantity_reserved
+
+    # Marketplace inventory from live API
+    marketplace_quantity = None
+    marketplace_source = None
+    try:
+        marketplace_quantity = _fetch_marketplace_inventory(
+            db=db,
+            organization_id=organization.id,
+            listing=listing,
+        )
+        marketplace_source = listing.marketplace
+    except HTTPException:
+        pass  # marketplace inventory unavailable — return None
+
+    return ListingInventoryResponse(
+        internal_quantity_available=internal_available,
+        internal_quantity_reserved=internal_reserved,
+        marketplace_quantity=marketplace_quantity,
+        marketplace_source=marketplace_source,
+    )
+
+
+@router.get(
+    "/listings/{listing_id}/marketplace-inventory",
+    response_model=MarketplaceInventoryResponse,
+)
+def get_listing_marketplace_inventory(
+    listing_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Fetch live inventory from the marketplace for a given listing."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    quantity = _fetch_marketplace_inventory(
+        db=db,
+        organization_id=organization.id,
+        listing=listing,
+    )
+
+    return MarketplaceInventoryResponse(
+        marketplace_quantity=quantity,
+        source=listing.marketplace,
+    )
+
+
+@router.patch(
+    "/listings/{listing_id}/inventory",
+    response_model=MarketplaceInventoryResponse,
+)
+def update_listing_inventory(
+    listing_id: UUID,
+    payload: InventoryUpdateRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Manually update inventory for a linked listing's product variant."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    if not listing.product_variant_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Listing is not linked to any product variant",
+        )
+
+    inventory = db.query(Inventory).filter(
+        Inventory.organization_id == organization.id,
+        Inventory.product_variant_id == listing.product_variant_id,
+        Inventory.location_name == "default",
+    ).first()
+
+    if not inventory:
+        raise HTTPException(status_code=404, detail="Inventory record not found")
+
+    inventory.quantity_available = payload.quantity_available
+    db.commit()
+
+    return MarketplaceInventoryResponse(
+        marketplace_quantity=inventory.quantity_available,
+        source=listing.marketplace,
+    )
+
+@router.post(
+    "/listings/{listing_id}/update-marketplace-inventory",
+    response_model=MarketplaceInventoryResponse,
+)
+def update_marketplace_inventory_route(
+    listing_id: UUID,
+    payload: UpdateMarketplaceInventoryRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Update inventory on the marketplace for a given listing."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    if not listing.product_variant_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Listing is not linked to any product variant",
+        )
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.id == listing.marketplace_account_id,
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Marketplace account not found")
+
+    # Update marketplace inventory via API
+    try:
+        update_marketplace_inventory(
+            db=db,
+            account=account,
+            sku=listing.marketplace_sku,
+            new_quantity=payload.new_quantity,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return MarketplaceInventoryResponse(
+        marketplace_quantity=payload.new_quantity,
+        source=listing.marketplace,
     )

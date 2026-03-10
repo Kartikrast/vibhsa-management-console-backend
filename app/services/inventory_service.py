@@ -8,9 +8,24 @@ import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
+from app.models.marketplace_account import MarketplaceAccount
+from app.marketplaces.adapter_registry import get_inventory_adapter
 from app.models.inventory import Inventory
 
 logger = logging.getLogger(__name__)
+
+def update_marketplace_inventory(
+    db: Session,
+    account: MarketplaceAccount,
+    sku: str,
+    new_quantity: int,
+) -> bool:
+    """
+    Update inventory on the marketplace for a specific SKU.
+    Returns True if update succeeded, False otherwise.
+    """
+    adapter = get_inventory_adapter(account.marketplace, account)
+    return adapter.update_inventory(db, sku, new_quantity)
 
 
 def _get_inventory_row(

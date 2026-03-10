@@ -138,6 +138,27 @@ class WalmartClient:
         """
         endpoint = f"/v3/inventory?sku={sku}"
         return self.request(method="GET", endpoint=endpoint, db=db)
+    
+    def update_inventory(self, db, sku: str, quantity: int):
+        """
+        Update inventory quantity for a SKU.
+        PUT /v3/inventory
+
+        Payload:
+        {
+            "sku": "SKU123",
+            "quantity": 10,
+        }
+        """
+        endpoint = "/v3/inventory"
+        payload = {
+        "sku": sku,
+        "quantity": {
+            "unit": "EACH",
+            "amount": quantity
+            }
+        }
+        return self.request(method="PUT", endpoint=endpoint, db=db, json=payload)
 
     # ========================
     # ORDER MANAGEMENT

@@ -46,6 +46,7 @@ def create_product(
     color,
     size,
     gtin: str | None = None,
+    initial_quantity: int = 0,
 ):
     try:
 
@@ -139,7 +140,7 @@ def create_product(
             organization_id=organization_id,
             product_variant_id=variant.id,
             location_name="default",
-            quantity_available=0,
+            quantity_available=initial_quantity,
             quantity_reserved=0,
         )
 
@@ -161,6 +162,7 @@ def create_variant_for_existing_product(
     product_type,
     color,
     size,
+    initial_quantity: int = 0,
 ):
     sku = (
         f"{category.short_code}"
@@ -187,7 +189,7 @@ def create_variant_for_existing_product(
         organization_id=organization_id,
         product_variant_id=variant.id,
         location_name="default",
-        quantity_available=0,
+        quantity_available=initial_quantity,
         quantity_reserved=0,
     )
 

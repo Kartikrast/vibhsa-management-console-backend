@@ -37,3 +37,14 @@ class MarketplaceOrderAdapter(ABC):
     def refund_order(self, db: Session, external_order_id: str, lines: list) -> dict:
         """Refund one or more order lines on the marketplace."""
         ...
+
+class MarketplaceInventoryAdapter(ABC):
+    """
+    Abstract base for marketplace inventory operations.
+    Each marketplace (Walmart, Amazon, Shopify, etc.) implements this interface.
+    """
+
+    @abstractmethod
+    def update_inventory(self, db: Session, sku: str, new_quantity: int) -> bool:
+        """Update inventory quantity for a specific product variant on the marketplace."""
+        ...

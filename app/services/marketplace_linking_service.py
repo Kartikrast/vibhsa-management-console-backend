@@ -77,6 +77,7 @@ def generate_internal_from_listing(
     material,
     color,
     size,
+    initial_quantity: int = 0,
 ):
 
     listing = db.query(MarketplaceListing).filter(
@@ -136,6 +137,7 @@ def generate_internal_from_listing(
             product_type=product.product_type_rel,
             color=color,
             size=size,
+            initial_quantity=initial_quantity,
         )
     else:
         product = create_product(
@@ -149,6 +151,7 @@ def generate_internal_from_listing(
             color=color,
             size=size,
             gtin=normalized_gtin,
+            initial_quantity=initial_quantity,
         )
 
         variant = product.variants[0]  # created inside create_product
