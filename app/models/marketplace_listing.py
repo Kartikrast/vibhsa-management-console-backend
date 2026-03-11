@@ -161,6 +161,25 @@ class MarketplaceListing(Base):
     )
 
     # ========================
+    # Feed Tracking (NEW)
+    # ========================
+
+    last_feed_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    last_feed_status: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    last_feed_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    # ========================
     # Raw Payload
     # ========================
 

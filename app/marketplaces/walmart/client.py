@@ -159,6 +159,66 @@ class WalmartClient:
             }
         }
         return self.request(method="PUT", endpoint=endpoint, db=db, json=payload)
+    
+    # ========================
+    # FEED MANAGEMENT
+    # ========================
+
+    def submit_feed(self, db, feed_type: str, payload: dict):
+        """
+        Submit a Walmart feed.
+
+        POST /v3/feeds
+
+        feed_type examples:
+        MP_ITEM
+        MP_INVENTORY
+        MP_PRICE
+        """
+
+        endpoint = "/v3/feeds"
+
+        params = {
+            "feedType": feed_type
+        }
+
+        return self.request(
+            method="POST",
+            endpoint=endpoint,
+            db=db,
+            params=params,
+            json=payload,
+        )
+    
+    def get_feed_status(self, db, feed_id: str):
+        """
+        Check Walmart feed processing status.
+
+        GET /v3/feeds/{feedId}
+        """
+
+        endpoint = f"/v3/feeds/{feed_id}"
+
+        return self.request(
+            method="GET",
+            endpoint=endpoint,
+            db=db,
+        )
+    
+    def get_feed_item_status(self, db, feed_id: str, offset: int = 0, limit: int = 50):
+        """
+        Fetch item level status for a feed.
+
+        GET /v3/feeds/{feedId}/items
+        """
+
+        endpoint = f"/v3/feeds/{feed_id}/items?offset={offset}&limit={limit}"
+
+        return self.request(
+            method="GET",
+            endpoint=endpoint,
+            db=db,
+        )
 
     # ========================
     # ORDER MANAGEMENT

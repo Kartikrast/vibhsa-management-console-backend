@@ -1,4 +1,5 @@
 import logging
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,19 @@ from app.routes import taxonomy
 from app.routes import orders
 from app.routes import webhooks
 from app.tasks.order_sync import sync_all_orders
+from app.tasks.walmart_feed_sync import sync_walmart_feed_status
+
+async def walmart_feed_worker():
+
+    while True:
+
+        try:
+            sync_walmart_feed_status()
+        except Exception as e:
+            print("Walmart feed sync error:", e)
+
+        # run every 30 seconds
+        await asyncio.sleep(30)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +41,10 @@ app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.APP_DEBUG,
 )
+@app.on_event("startup")
+async def start_workers():
+
+    asyncio.create_task(walmart_feed_worker())
 
 app.include_router(auth.router)
 app.include_router(marketplaces.router)

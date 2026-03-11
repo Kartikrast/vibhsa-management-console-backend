@@ -56,6 +56,8 @@ class MarketplaceListingSummaryResponse(BaseModel):
     import_status: str
     sync_status: str
     listing_status: str
+    last_feed_status: Optional[str] = None
+    last_feed_error: Optional[str] = None
 
     class Config:
         from_attributes = True

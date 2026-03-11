@@ -7,9 +7,12 @@ import logging
 from app.core.database import SessionLocal
 from app.models.marketplace_account import MarketplaceAccount
 from app.services.order_import.order_import_service import import_orders
+from app.tasks.walmart_feed_sync import sync_walmart_feed_status
 
 logger = logging.getLogger(__name__)
 
+def run_marketplace_sync():
+    sync_walmart_feed_status()
 
 def sync_all_orders():
     """

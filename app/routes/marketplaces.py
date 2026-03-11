@@ -34,6 +34,9 @@ from app.models.taxonomy import (
     Color,
     Size,
 )
+from app.services.marketplace_publish.walmart_publish_service import (
+    publish_walmart_listing,
+)
 
 router = APIRouter(prefix="/marketplaces", tags=["Marketplaces"])
 
@@ -626,3 +629,10 @@ def update_marketplace_inventory_route(
         marketplace_quantity=payload.new_quantity,
         source=listing.marketplace,
     )
+
+@router.post("/marketplace-listings/{listing_id}/publish")
+def publish_listing(
+    listing_id: UUID,
+    db: Session = Depends(get_db),
+):
+    return publish_walmart_listing(db, listing_id)
