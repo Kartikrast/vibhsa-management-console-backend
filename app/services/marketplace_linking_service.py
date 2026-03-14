@@ -4,6 +4,7 @@ from app.models.product import Product
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.product_variant import ProductVariant
 from app.models.inventory import Inventory
+from app.models.product_media import ProductMedia
 from fastapi import HTTPException
 from uuid import UUID
 from datetime import datetime, timezone
@@ -12,6 +13,40 @@ from app.services.product_service import (
     create_variant_for_existing_product,
     generate_product_signature,
 )
+
+
+def _import_marketplace_images(
+    db: Session,
+    organization_id: UUID,
+    variant_id: UUID,
+    listing: MarketplaceListing,
+):
+    """Create ProductMedia rows from the listing's marketplace_images."""
+    images = listing.marketplace_images
+    if not images:
+        return
+
+    # Count existing media to continue display_order
+    existing_count = (
+        db.query(ProductMedia)
+        .filter(
+            ProductMedia.product_variant_id == variant_id,
+            ProductMedia.organization_id == organization_id,
+        )
+        .count()
+    )
+
+    for i, url in enumerate(images):
+        order = existing_count + i + 1
+        media = ProductMedia(
+            organization_id=organization_id,
+            product_variant_id=variant_id,
+            media_type="image",
+            media_url=url,
+            display_order=order,
+            is_primary=(order == 1),
+        )
+        db.add(media)
 
 
 
@@ -55,6 +90,8 @@ def link_existing_listing(
     listing.product_variant_id = product_variant_id
     listing.import_status = "LINKED"
     listing.updated_at = datetime.now(timezone.utc)
+
+    _import_marketplace_images(db, organization_id, product_variant_id, listing)
 
     db.commit()
 
@@ -161,6 +198,8 @@ def generate_internal_from_listing(
     # ----------------------------------
     listing.product_variant_id = variant.id
     listing.import_status = "LINKED"
+
+    _import_marketplace_images(db, organization_id, variant.id, listing)
 
     db.commit()
 

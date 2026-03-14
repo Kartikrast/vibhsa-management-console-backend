@@ -137,6 +137,32 @@ class ProductListResponse(BaseModel):
     limit: int
 
 
+# ==============================
+# Variant List Schema
+# ==============================
+
+class VariantListItemResponse(BaseModel):
+    id: UUID
+    sku: str
+    product_id: UUID
+    product_title: Optional[str] = None
+    color: Optional[str] = None
+    size: Optional[str] = None
+    quantity_available: int = 0
+    quantity_reserved: int = 0
+    image_url: Optional[str] = None
+    status: str
+    gtin: Optional[str] = None
+    created_at: datetime
+
+
+class PaginatedVariantListResponse(BaseModel):
+    data: List[VariantListItemResponse]
+    total: int
+    page: int
+    limit: int
+
+
 class ProductStatusEnum(str, Enum):
     DRAFT = "DRAFT"
     ACTIVE = "ACTIVE"

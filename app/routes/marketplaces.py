@@ -322,15 +322,19 @@ def get_marketplace_info(
         "marketplace": listing.marketplace,
         "marketplace_sku": listing.marketplace_sku,
         "external_id": listing.external_id,
-        "title": listing.title,
+        "title": listing.marketplace_title,
         "price": listing.price,
         "currency": listing.currency,
-        "url": listing.url,
+        "url": listing.marketplace_url,
         "marketplace_product_type": listing.marketplace_product_type,
         "import_status": listing.import_status,
         "gtin": listing.gtin,
         "listing_status": listing.listing_status,
         "inventory_quantity": inventory_data.get("available_quantity"),
+        "images": listing.marketplace_images,
+        "customer_rating": listing.marketplace_customer_rating,
+        "num_reviews": listing.marketplace_num_reviews,
+        "keywords": listing.marketplace_keywords,
     }
 
     return data

@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from uuid import UUID
 from decimal import Decimal
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 class MarketplaceListingResponse(BaseModel):
@@ -10,7 +10,7 @@ class MarketplaceListingResponse(BaseModel):
     marketplace: str
     marketplace_sku: Optional[str]
     external_id: str
-    title: Optional[str]
+    marketplace_title: Optional[str]
     price: Optional[Decimal]
     currency: str
     listing_status: Optional[str]
@@ -18,10 +18,20 @@ class MarketplaceListingResponse(BaseModel):
     product_variant_id: Optional[UUID]
     created_at: datetime
     marketplace_product_type: Optional[str]
-    url: Optional[str]
+    marketplace_url: Optional[str]
 
     class Config:
         from_attributes = True
+
+class MarketplaceListingDetailResponse(MarketplaceListingResponse):
+    marketplace_description: Optional[str]
+    marketplace_item_id: str
+    marketplace_images: List[str] = []
+    marketplace_customer_rating: Optional[str] = None
+    marketplace_num_reviews: Optional[str] = None
+    marketplace_keywords: List[str] = []
+    marketplace_customer_rating: Optional[str] = None
+    brand: Optional[str] = None
 
 class ImportResponse(BaseModel):
     imported: int
@@ -45,6 +55,11 @@ class MarketplaceInfoResponse(BaseModel):
     gtin: Optional[str]
     listing_status: Optional[str]
     inventory_quantity: Optional[int]
+    images: List[str] = []
+    customer_rating: Optional[str] = None
+    num_reviews: Optional[str] = None
+    keywords: List[str] = []
+    brand: Optional[str] = None
 
     class Config:
         from_attributes = True

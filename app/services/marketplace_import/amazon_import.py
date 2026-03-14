@@ -79,7 +79,7 @@ def import_amazon_listings(
         ).first()
 
         if existing:
-            existing.title = title
+            existing.marketplace_title = title
             existing.marketplace_sku = sku
             existing.price = price
             existing.currency = currency
@@ -95,7 +95,7 @@ def import_amazon_listings(
                 marketplace="amazon",
                 external_id=external_id,
                 marketplace_sku=sku,
-                title=title,
+                marketplace_title=title,
                 price=price,
                 currency=currency,
                 gtin=gtin,

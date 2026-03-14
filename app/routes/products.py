@@ -18,9 +18,12 @@ from app.schemas.product_display import (
     UpdateProductRequest,
     ReorderMediaRequest,
     ProductMediaResponse,
+    VariantListItemResponse,
+    PaginatedVariantListResponse,
 )
 
 from app.models.taxonomy import Category, SubCategory, SubSubCategory, ProductType, Material, Color, Size
+from sqlalchemy.orm import aliased
 from app.models.product import Product
 from app.models.product_variant import ProductVariant
 from app.models.inventory import Inventory
@@ -135,6 +138,98 @@ def get_products(
         page=page,
         limit=limit,
     )
+
+@router.get("/variants", response_model=PaginatedVariantListResponse)
+def get_all_variants(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+    page: int = 1,
+    limit: int = 20,
+):
+    organization = context["organization"]
+
+    # Subquery: pick the best media row per variant (is_primary DESC, display_order ASC)
+    media_sq = (
+        db.query(
+            ProductMedia.product_variant_id,
+            ProductMedia.media_url,
+            func.row_number()
+            .over(
+                partition_by=ProductMedia.product_variant_id,
+                order_by=[
+                    ProductMedia.is_primary.desc(),
+                    ProductMedia.display_order.asc(),
+                ],
+            )
+            .label("rn"),
+        )
+        .filter(ProductMedia.product_variant_id.isnot(None))
+        .subquery()
+    )
+
+    primary_media = aliased(media_sq, name="pm")
+
+    query = (
+        db.query(
+            ProductVariant.id,
+            ProductVariant.sku,
+            ProductVariant.product_id,
+            Product.title.label("product_title"),
+            Color.name.label("color"),
+            Size.name.label("size"),
+            func.coalesce(Inventory.quantity_available, 0).label("quantity_available"),
+            func.coalesce(Inventory.quantity_reserved, 0).label("quantity_reserved"),
+            primary_media.c.media_url.label("image_url"),
+            Product.status,
+            Product.gtin,
+            ProductVariant.created_at,
+        )
+        .join(Product, Product.id == ProductVariant.product_id)
+        .outerjoin(Color, Color.id == ProductVariant.color_id)
+        .outerjoin(Size, Size.id == ProductVariant.size_id)
+        .outerjoin(Inventory, Inventory.product_variant_id == ProductVariant.id)
+        .outerjoin(
+            primary_media,
+            (primary_media.c.product_variant_id == ProductVariant.id)
+            & (primary_media.c.rn == 1),
+        )
+        .filter(Product.organization_id == organization.id)
+    )
+
+    total = query.count()
+
+    rows = (
+        query.order_by(ProductVariant.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    data = [
+        VariantListItemResponse(
+            id=r.id,
+            sku=r.sku,
+            product_id=r.product_id,
+            product_title=r.product_title,
+            color=r.color,
+            size=r.size,
+            quantity_available=r.quantity_available,
+            quantity_reserved=r.quantity_reserved,
+            image_url=r.image_url,
+            status=r.status,
+            gtin=r.gtin,
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+    return PaginatedVariantListResponse(
+        data=data,
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
 
 @router.get("/{product_id}", response_model=ProductDetailResponse)
 def get_product_detail(

@@ -47,6 +47,22 @@ MATERIAL_DATA = [
     ("Foam", "FM"),
     ("Leather", "LTH"),
     ("Polyester", "POL"),
+    ("Iron", "IRN"),
+    ("Steel", "STL"),
+    ("Aluminium", "ALU"),
+    ("Copper", "CPR"),
+    ("Brass", "BRS"),
+    ("Plastic", "PLS"),
+    ("PVC", "PVC"),
+    ("Polycarbonate", "PCARB"),
+    ("Polypropylene", "PP"),
+    ("Polyethylene", "PE"),
+    ("ABS Plastic", "ABS"),
+    ("Acrylic", "ACR"),
+    ("Nylon", "NYL"),
+    ("Silicone", "SIL"),
+    ("Resin", "RSN"),
+    ("Teflon", "TFL"),
 ]
 
 # ==========================

@@ -1,7 +1,9 @@
+from typing import List
 import uuid
 from datetime import datetime
 from sqlalchemy import (
     ForeignKey,
+    Integer,
     UniqueConstraint,
     String,
     Numeric,
@@ -80,8 +82,18 @@ class MarketplaceListing(Base):
         index=True,
     )
 
-    title: Mapped[str | None] = mapped_column(
+    brand: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    marketplace_title: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    marketplace_description: Mapped[str | None] = mapped_column(
+        Text,
         nullable=True,
     )
 
@@ -92,8 +104,34 @@ class MarketplaceListing(Base):
         index=True,
     )
 
-    url: Mapped[str | None] = mapped_column(
+    marketplace_item_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
+    marketplace_url: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    marketplace_images: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    marketplace_customer_rating: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True,
+    )
+
+    marketplace_num_reviews: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
+    marketplace_keywords: Mapped[list | None] = mapped_column(
+        JSONB,
         nullable=True,
     )
 

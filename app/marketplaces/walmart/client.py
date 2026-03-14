@@ -130,6 +130,14 @@ class WalmartClient:
         """
         endpoint = f"/v3/items/{sku}"
         return self.request(method="GET", endpoint=endpoint, db=db)
+    
+    def get_item_details(self, db, gtin: str):
+        """
+        Fetch item details by GTIN
+        GET /v3/items/walmart/search?gtin={gtin}
+        """
+        endpoint = f"/v3/items/walmart/search?gtin={gtin}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
 
     # ========================
     # INVENTORY MANAGEMENT
