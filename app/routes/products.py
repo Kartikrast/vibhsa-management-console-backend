@@ -1,6 +1,7 @@
 import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from pydantic import BaseModel
 from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
@@ -26,6 +27,9 @@ from app.models.inventory import Inventory
 from app.models.product_media import ProductMedia
 
 from app.services.product_service import create_product
+from app.models.marketplace_listing import MarketplaceListing
+from app.models.marketplace_account import MarketplaceAccount
+from app.services.inventory_service import update_marketplace_inventory
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -102,10 +106,28 @@ def get_products(
         .all()
     )
 
-    data = [
-        ProductListItemResponse.model_validate(product)
-        for product in products
-    ]
+    # Compute total inventory per product in one query
+    product_ids = [p.id for p in products]
+    inventory_totals = {}
+    if product_ids:
+        rows = (
+            db.query(
+                ProductVariant.product_id,
+                func.coalesce(func.sum(Inventory.quantity_available), 0).label("total_qty"),
+            )
+            .outerjoin(Inventory, Inventory.product_variant_id == ProductVariant.id)
+            .filter(ProductVariant.product_id.in_(product_ids))
+            .group_by(ProductVariant.product_id)
+            .all()
+        )
+        for row in rows:
+            inventory_totals[row.product_id] = row.total_qty
+
+    data = []
+    for product in products:
+        item = ProductListItemResponse.model_validate(product)
+        item.total_inventory = inventory_totals.get(product.id, 0)
+        data.append(item)
 
     return PaginatedProductListResponse(
         data=data,
@@ -138,6 +160,8 @@ def get_product_detail(
             .joinedload(ProductVariant.media),
             joinedload(Product.variants)
             .joinedload(ProductVariant.marketplace_listings),
+            joinedload(Product.variants)
+            .joinedload(ProductVariant.inventory),
         )
         .filter(
             Product.id == product_id,
@@ -415,3 +439,102 @@ def reorder_media(
     db.commit()
 
     return {"message": "Media reordered successfully"}
+
+
+# ============================================================
+# Variant Inventory (Source of Truth + Marketplace Auto-Sync)
+# ============================================================
+
+class UpdateVariantInventoryRequest(BaseModel):
+    quantity_available: int
+
+
+@router.patch("/variants/{variant_id}/inventory")
+def update_variant_inventory(
+    variant_id: UUID,
+    payload: UpdateVariantInventoryRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """
+    Update internal inventory for a variant and auto-sync to every
+    linked marketplace listing.
+    """
+    organization = context["organization"]
+
+    # Upsert inventory row
+    inv = (
+        db.query(Inventory)
+        .filter(
+            Inventory.organization_id == organization.id,
+            Inventory.product_variant_id == variant_id,
+            Inventory.location_name == "default",
+        )
+        .first()
+    )
+
+    if inv is None:
+        inv = Inventory(
+            organization_id=organization.id,
+            product_variant_id=variant_id,
+            location_name="default",
+            quantity_available=payload.quantity_available,
+            quantity_reserved=0,
+        )
+        db.add(inv)
+    else:
+        inv.quantity_available = payload.quantity_available
+
+    db.flush()
+
+    # Auto-sync to all linked marketplace listings for this variant
+    listings = (
+        db.query(MarketplaceListing)
+        .filter(
+            MarketplaceListing.product_variant_id == variant_id,
+            MarketplaceListing.organization_id == organization.id,
+            MarketplaceListing.import_status == "LINKED",
+        )
+        .all()
+    )
+
+    sync_results = []
+    for listing in listings:
+        account = (
+            db.query(MarketplaceAccount)
+            .filter(MarketplaceAccount.id == listing.marketplace_account_id)
+            .first()
+        )
+        if not account or not listing.marketplace_sku:
+            sync_results.append({
+                "listing_id": str(listing.id),
+                "marketplace": listing.marketplace,
+                "success": False,
+                "error": "Missing account or SKU",
+            })
+            continue
+
+        try:
+            success = update_marketplace_inventory(
+                db, account, listing.marketplace_sku, payload.quantity_available,
+            )
+            sync_results.append({
+                "listing_id": str(listing.id),
+                "marketplace": listing.marketplace,
+                "success": success,
+            })
+        except Exception as e:
+            sync_results.append({
+                "listing_id": str(listing.id),
+                "marketplace": listing.marketplace,
+                "success": False,
+                "error": str(e),
+            })
+
+    db.commit()
+
+    return {
+        "quantity_available": inv.quantity_available,
+        "quantity_reserved": inv.quantity_reserved,
+        "sync_results": sync_results,
+    }

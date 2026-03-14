@@ -2,6 +2,7 @@ import httpx
 import uuid
 import base64
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from app.core.config import get_settings
 
@@ -108,11 +109,13 @@ class WalmartClient:
 
         return response.json()
 
-    def get_items(self, db, limit: int = 10):
+    def get_items(self, db, limit: int = 50, next_cursor: str = None):
         """
         Fetch product listings from Walmart.
         """
         endpoint = f"/v3/items?limit={limit}"
+        if next_cursor:
+            endpoint += f"&nextCursor={quote(next_cursor, safe='')}"
 
         return self.request(
             method="GET",

@@ -131,6 +131,13 @@ class ProductVariant(Base):
     color = relationship("Color")
     size = relationship("Size")
 
+    inventory = relationship(
+        "Inventory",
+        primaryjoin="ProductVariant.id == Inventory.product_variant_id",
+        uselist=False,
+        viewonly=True,
+    )
+
     # ========================
     # Constraints
     # ========================

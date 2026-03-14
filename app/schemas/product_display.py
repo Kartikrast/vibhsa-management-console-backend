@@ -123,6 +123,7 @@ class ProductListItemResponse(BaseModel):
     title: Optional[str]
     status: str
     gtin: Optional[str]
+    total_inventory: int = 0
     created_at: datetime
 
     class Config:
