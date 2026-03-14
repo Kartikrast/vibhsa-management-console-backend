@@ -340,6 +340,22 @@ class WalmartClient:
     # SHIPPING LABELS (Ship With Walmart)
     # ========================
 
+    def walmart_supported_carriers(self, db):
+        """
+        Fetch supported carriers for shipping labels.
+        GET /v3/shipping/labels/carriers
+        """
+        endpoint = "/v3/shipping/labels/carriers"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+    
+    def get_carrier_package_types(self, db, carrier_short_name: str):
+        """
+        Fetch supported package types for a carrier.
+        GET /v3/shipping/labels/carriers/{carrierShortName}/package-types
+        """
+        endpoint = f"/v3/shipping/labels/carriers/{carrier_short_name}/package-types"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
     def request_raw(self, method, endpoint, db, **kwargs):
         """
         Like request(), but returns the raw httpx.Response instead of .json().
