@@ -1,6 +1,7 @@
 import os
 import shutil
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -30,6 +31,8 @@ from app.models.inventory import Inventory
 from app.models.product_media import ProductMedia
 
 from app.services.product_service import create_product
+from app.services.bulk_upload_service import process_bulk_upload, generate_bulk_template
+from app.schemas.product_bulk import BulkUploadResponse
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.marketplace_account import MarketplaceAccount
 from app.services.inventory_service import update_marketplace_inventory
@@ -86,6 +89,49 @@ def create_product_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+
+@router.post("/bulk-upload", response_model=BulkUploadResponse)
+def bulk_upload_products(
+    file: UploadFile = File(...),
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .xlsx or .xls files are supported",
+        )
+
+    file_bytes = file.file.read()
+
+    result = process_bulk_upload(
+        db=db,
+        organization_id=organization.id,
+        file_bytes=file_bytes,
+        filename=file.filename,
+    )
+
+    return result
+
+
+@router.get("/bulk-upload/template")
+def download_bulk_template(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    file_bytes = generate_bulk_template(db)
+
+    return Response(
+        content=file_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename=product_bulk_upload_template.xlsx"
+        },
+    )
+
 
 @router.get("", response_model=PaginatedProductListResponse)
 def get_products(
