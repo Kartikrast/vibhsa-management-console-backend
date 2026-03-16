@@ -135,6 +135,11 @@ class MarketplaceListing(Base):
         nullable=True,
     )
 
+    marketplace_bullet_points: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
     # ========================
     # Commercial Data
     # ========================

@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     ORDER_SYNC_INTERVAL_MINUTES: int = 15
 
+    BRAVE_BROWSER_PATH: str = ""
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

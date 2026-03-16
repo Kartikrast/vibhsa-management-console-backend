@@ -30,6 +30,7 @@ class MarketplaceListingDetailResponse(MarketplaceListingResponse):
     marketplace_customer_rating: Optional[str] = None
     marketplace_num_reviews: Optional[str] = None
     marketplace_keywords: List[str] = []
+    marketplace_bullet_points: List[str] = []
     marketplace_customer_rating: Optional[str] = None
     brand: Optional[str] = None
 
@@ -59,8 +60,19 @@ class MarketplaceInfoResponse(BaseModel):
     customer_rating: Optional[str] = None
     num_reviews: Optional[str] = None
     keywords: List[str] = []
+    bullet_points: List[str] = []
     brand: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class BulkScrapeRequest(BaseModel):
+    listing_ids: List[UUID]
+
+
+class ScrapeResponse(BaseModel):
+    message: str
+    listing_id: Optional[UUID] = None
+    count: Optional[int] = None
 
