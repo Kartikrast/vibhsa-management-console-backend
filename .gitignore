@@ -23,3 +23,12 @@ media/
 
 # folder structure
 Folder-Structure.md
+
+# browser-user-profile-data
+browser_data/
+
+# temp files
+temp.py
+
+# gemini
+GEMINI.*
