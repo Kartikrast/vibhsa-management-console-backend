@@ -82,6 +82,9 @@ def create_product_endpoint(
             size=size,
         )
 
+        db.commit()
+        db.refresh(product)
+
         return product
 
     except ValueError as e:
