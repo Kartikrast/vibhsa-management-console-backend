@@ -123,8 +123,7 @@ class LinkOrderLineRequest(BaseModel):
 class BoxItemRequest(BaseModel):
     sku: str
     quantity: int = 1
-    country_of_origin: str = "US"
-    harmonized_code: str = ""
+    line_number: str = ""
 
 
 class FromAddressRequest(BaseModel):
@@ -141,14 +140,19 @@ class FromAddressRequest(BaseModel):
 
 class CreateShippingLabelRequest(BaseModel):
     package_type: str = "CUSTOM_PACKAGE"
-    box_weight: float = 1
-    box_length: float = 10
-    box_width: float = 8
+    box_weight: float = 16
+    box_length: float = 6
+    box_width: float = 6
     box_height: float = 4
     box_dimension_unit: str = "IN"
-    box_weight_unit: str = "LB"
+    box_weight_unit: str = "OZ"
     box_items: list[BoxItemRequest]
     from_address: FromAddressRequest
+    return_address: FromAddressRequest | None = None
+    carrier_name: str = "USPS"
+    carrier_service_type: str = "GROUND_ADVANTAGE"
+    has_battery: bool = False
+    hazmat: bool = False
 
 
 class DownloadShippingLabelRequest(BaseModel):

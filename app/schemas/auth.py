@@ -49,9 +49,40 @@ class OrganizationInfo(BaseModel):
         from_attributes = True
 
 
+class OrganizationListItem(BaseModel):
+    id: UUID
+    name: str
+    slug: str
+    role: str
+    is_current: bool = False
+
+    class Config:
+        from_attributes = True
+
+
+class SwitchOrgRequest(BaseModel):
+    organization_id: UUID
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class CreateOrgRequest(BaseModel):
+    name: str
+
+
+class CreateOrgResponse(BaseModel):
+    organization: OrganizationInfo
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
 class MeResponse(BaseModel):
     id: UUID
     email: EmailStr
     auth_provider: str
     organization: OrganizationInfo
     role: str
+    organizations: list[OrganizationListItem] = []

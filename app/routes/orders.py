@@ -5,7 +5,7 @@ from uuid import UUID
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_context
-from app.models.order import Order, OrderLine, OrderStatusLog
+from app.models.order import Order, OrderLine, OrderStatusLog, OrderStatus
 from app.models.marketplace_account import MarketplaceAccount
 from app.schemas.order import (
     OrderListResponse,
@@ -363,6 +363,15 @@ def create_shipping_label_route(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Shipping labels not supported for {order.marketplace}",
         )
+
+    # Auto-acknowledge Created orders before generating labels
+    if order.status == OrderStatus.CREATED:
+        acknowledge_order(
+            db=db,
+            org_id=organization.id,
+            order_id=order.id,
+        )
+        db.refresh(order)
 
     label_data = payload.model_dump()
     result = adapter.create_shipping_label(

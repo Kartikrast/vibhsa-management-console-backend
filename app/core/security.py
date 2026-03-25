@@ -49,12 +49,14 @@ def create_access_token(
 
 def create_refresh_token(
     subject: Any,
+    organization_id: Any,
     expires_days: int = 7,
 ) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
     to_encode = {
         "sub": str(subject),
+        "org_id": str(organization_id),
         "exp": expire,
         "type": "refresh",
     }

@@ -170,60 +170,66 @@ class WalmartOrderAdapter(MarketplaceOrderAdapter):
         label_data format (internal):
         {
             "package_type": "CUSTOM_PACKAGE",
-            "box_weight": 1,
-            "box_length": 10,
-            "box_width": 8,
+            "box_weight": 16,
+            "box_length": 6,
+            "box_width": 6,
             "box_height": 4,
             "box_dimension_unit": "IN",
-            "box_weight_unit": "LB",
+            "box_weight_unit": "OZ",
             "box_items": [
-                {"sku": "SKU123", "quantity": 1, "country_of_origin": "US"}
+                {"sku": "SKU123", "quantity": 1, "line_number": "1"}
             ],
-            "from_address": {
-                "contact_name": "Seller",
-                "company_name": "Company",
-                "address_line1": "123 Main St",
-                "city": "City",
-                "state": "CA",
-                "postal_code": "90001",
-                "country": "US",
-                "phone": "5551234567",
-            },
+            "from_address": { ... },
+            "return_address": { ... },
+            "carrier_name": "USPS",
+            "carrier_service_type": "GROUND_ADVANTAGE",
+            "has_battery": False,
+            "hazmat": False,
         }
         """
         walmart_box_items = []
         for item in label_data.get("box_items", []):
-            walmart_box_items.append({
+            box_item = {
                 "sku": item["sku"],
                 "quantity": item.get("quantity", 1),
-                "countryOfOrigin": item.get("country_of_origin", "US"),
-                "harmonizedCode": item.get("harmonized_code", ""),
-            })
+            }
+            if item.get("line_number"):
+                box_item["lineNumber"] = str(item["line_number"])
+            walmart_box_items.append(box_item)
+
+        def _build_address(addr: dict) -> dict:
+            return {
+                "contactName": addr.get("contact_name", ""),
+                "companyName": addr.get("company_name", ""),
+                "addressLine1": addr.get("address_line1", ""),
+                "addressLine2": addr.get("address_line2", ""),
+                "city": addr.get("city", ""),
+                "state": addr.get("state", ""),
+                "postalCode": addr.get("postal_code", ""),
+                "country": addr.get("country", "US"),
+                "phone": addr.get("phone", ""),
+            }
 
         from_addr = label_data.get("from_address", {})
+        return_addr = label_data.get("return_address") or from_addr
 
         walmart_request = {
             "packageType": label_data.get("package_type", "CUSTOM_PACKAGE"),
             "boxDimensions": {
                 "boxDimensionUnit": label_data.get("box_dimension_unit", "IN"),
-                "boxWeightUnit": label_data.get("box_weight_unit", "LB"),
-                "boxWeight": label_data.get("box_weight", 1),
-                "boxLength": label_data.get("box_length", 10),
-                "boxWidth": label_data.get("box_width", 8),
+                "boxWeightUnit": label_data.get("box_weight_unit", "OZ"),
+                "boxWeight": label_data.get("box_weight", 16),
+                "boxLength": label_data.get("box_length", 6),
+                "boxWidth": label_data.get("box_width", 6),
                 "boxHeight": label_data.get("box_height", 4),
             },
             "boxItems": walmart_box_items,
-            "fromAddress": {
-                "contactName": from_addr.get("contact_name", ""),
-                "companyName": from_addr.get("company_name", ""),
-                "addressLine1": from_addr.get("address_line1", ""),
-                "addressLine2": from_addr.get("address_line2", ""),
-                "city": from_addr.get("city", ""),
-                "state": from_addr.get("state", ""),
-                "postalCode": from_addr.get("postal_code", ""),
-                "country": from_addr.get("country", "US"),
-                "phone": from_addr.get("phone", ""),
-            },
+            "fromAddress": _build_address(from_addr),
+            "returnAddress": _build_address(return_addr),
+            "carrierName": label_data.get("carrier_name", "USPS"),
+            "carrierServiceType": label_data.get("carrier_service_type", "GROUND_ADVANTAGE"),
+            "hasBattery": label_data.get("has_battery", False),
+            "hazmat": label_data.get("hazmat", False),
         }
 
         return self.client.create_shipping_label(

@@ -54,7 +54,10 @@ def issue_tokens(
         role=membership.role,
     )
 
-    refresh_token = create_refresh_token(subject=user.id)
+    refresh_token = create_refresh_token(
+        subject=user.id,
+        organization_id=organization_id,
+    )
 
     return Token(
         access_token=access_token,
