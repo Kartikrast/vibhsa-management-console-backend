@@ -302,7 +302,7 @@ class WalmartOrderAdapter(MarketplaceOrderAdapter):
 
                 if charge_type == "PRODUCT":
                     unit_price = amount
-                    tax_obj = charge.get("tax", {}).get("taxAmount", {})
+                    tax_obj = (charge.get("tax") or {}).get("taxAmount") or {}
                     tax_amount += _num(tax_obj.get("amount", 0))
                 elif charge_type == "SHIPPING":
                     shipping_charge = amount
