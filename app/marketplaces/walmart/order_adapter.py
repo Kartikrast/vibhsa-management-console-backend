@@ -17,11 +17,22 @@ class WalmartOrderAdapter(MarketplaceOrderAdapter):
 
     def fetch_new_orders(self, db: Session, **kwargs) -> list[dict]:
         """
-        Fetch released orders from Walmart and normalize into a common format.
+        Fetch all orders from Walmart and normalize into a common format.
+        Supports optional filters: status, created_start_date, created_end_date, limit.
         Returns a list of normalized order dicts.
         """
         limit = kwargs.get("limit", 100)
-        response = self.client.get_released_orders(db=db, limit=limit)
+        status = kwargs.get("status")
+        created_start_date = kwargs.get("created_start_date")
+        created_end_date = kwargs.get("created_end_date")
+
+        response = self.client.get_all_orders(
+            db=db,
+            status=status,
+            created_start_date=created_start_date,
+            created_end_date=created_end_date,
+            limit=limit,
+        )
 
         raw_orders = (
             response.get("list", {})
