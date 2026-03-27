@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import subprocess
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +42,22 @@ app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.APP_DEBUG,
 )
+@app.on_event("startup")
+async def run_migrations():
+    """Run Alembic migrations on startup (for free-tier hosts without pre-deploy commands)."""
+    try:
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            logger.info("Alembic migrations applied successfully")
+        else:
+            logger.error("Alembic migration failed: %s", result.stderr)
+    except Exception as e:
+        logger.error("Failed to run Alembic migrations: %s", e)
+
 @app.on_event("startup")
 async def start_workers():
 
