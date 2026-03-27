@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_context
-from app.schemas.marketplace import WalmartConnectRequest, AmazonConnectRequest
+from app.schemas.marketplace import WalmartConnectRequest, AmazonConnectRequest, UpdateMarketplaceAccountRequest
 from app.schemas.marketplace_listing import MarketplaceListingResponse, ImportResponse, MarketplaceInfoResponse
 from app.schemas.listing_link import (
     ListingLinkResponse,
@@ -92,6 +92,51 @@ def connect_walmart(
     db.commit()
 
     return {"message": "Walmart connected successfully"}
+
+
+@router.patch("/account/{account_id}")
+def update_marketplace_account(
+    account_id: UUID,
+    payload: UpdateMarketplaceAccountRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Update marketplace account settings (e.g. default shipping address)."""
+    organization = context["organization"]
+
+    account = (
+        db.query(MarketplaceAccount)
+        .filter(
+            MarketplaceAccount.id == account_id,
+            MarketplaceAccount.organization_id == organization.id,
+        )
+        .first()
+    )
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Marketplace account not found",
+        )
+
+    if payload.default_from_address is not None:
+        account.default_from_address = payload.default_from_address.model_dump()
+
+    if payload.default_return_address is not None:
+        account.default_return_address = payload.default_return_address.model_dump()
+
+    db.commit()
+    db.refresh(account)
+
+    return {
+        "id": str(account.id),
+        "marketplace": account.marketplace,
+        "seller_id": account.seller_id,
+        "default_from_address": account.default_from_address,
+        "default_return_address": account.default_return_address,
+        "message": "Account updated successfully",
+    }
+
 
 @router.post("/amazon/connect")
 def connect_amazon(

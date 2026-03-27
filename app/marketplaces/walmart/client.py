@@ -8,6 +8,11 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+DEFAULT_BOX = {
+    "boxWeightUnit": "OZ", "boxLength": 6, "boxWidth": 6,
+    "boxHeight": 4, "boxWeight": 16, "boxDimensionUnit": "IN"
+}
+
 class WalmartClient:
     def __init__(self, account=None, client_id=None, client_secret=None):
         """
@@ -383,42 +388,44 @@ class WalmartClient:
         POST /v3/shipping/labels
 
         label_request format:
-        {
-            "packageType": "CUSTOM_PACKAGE",
-            "boxDimensions": {
-                "boxDimensionUnit": "IN",
-                "boxWeightUnit": "LB",
-                "boxWeight": 1,
-                "boxLength": 10,
-                "boxWidth": 8,
-                "boxHeight": 4,
-            },
-            "boxItems": [
-                {
-                    "sku": "SKU123",
-                    "quantity": 1,
-                    "countryOfOrigin": "US",
-                    "harmonizedCode": "",
-                }
-            ],
-            "fromAddress": {
-                "contactName": "Seller Name",
-                "companyName": "Company",
-                "addressLine1": "123 Main St",
-                "city": "City",
-                "state": "CA",
-                "postalCode": "90001",
-                "country": "US",
-                "phone": "5551234567",
-            },
-        }
+        label_payload = {
+                "boxDimensions": DEFAULT_BOX,
+                "fromAddress": FROM_ADDRESS,
+                "returnAddress": FROM_ADDRESS,
+                "packageType": "CUSTOM_PACKAGE",
+                "boxItems": [{"sku": sku, "quantity": 1, "lineNumber": str(line_num)}],
+                "purchaseOrderId": po_id,
+                "carrierName": CARRIER,
+                "carrierServiceType": SERVICE_TYPE,
+                "hasBattery": False,
+                "hazmat": False
+            }
         """
         payload = {
+            "boxDimensions": label_request.get("boxDimensions", DEFAULT_BOX),
+            "fromAddress": label_request["fromAddress"],
+            "returnAddress": label_request["returnAddress"],
+            "packageType": label_request.get("packageType", "CUSTOM_PACKAGE"),
+            "boxItems": label_request["boxItems"],
             "purchaseOrderId": purchase_order_id,
-            **label_request,
+            "carrierName": label_request["carrierName"],
+            "carrierServiceType": label_request["carrierServiceType"],
+            "hasBattery": label_request.get("hasBattery", False),
+            "hazmat": label_request.get("hazmat", False),
         }
         endpoint = "/v3/shipping/labels"
-        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+        result = self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+        label_data = result.get("data", result)
+        tracking = label_data.get("trackingNo", "N/A")
+        carrier_full = label_data.get("carrierFullName", "N/A")
+        service = label_data.get("carrierServiceType", "N/A")
+        tracking_url = label_data.get("trackingUrl", "N/A")
+        return {
+            "tracking": tracking,
+            "carrier": carrier_full,
+            "service": service,
+            "tracking_url": tracking_url,
+        }
 
     def get_shipping_label(self, db, purchase_order_id: str):
         """

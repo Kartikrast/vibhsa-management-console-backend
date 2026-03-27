@@ -175,6 +175,30 @@ class Order(Base):
     )
 
     # ========================
+    # Shipping Label
+    # ========================
+
+    label_tracking_number: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    label_carrier: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    label_carrier_service_type: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    label_tracking_url: Mapped[str | None] = mapped_column(
+        String(1000),
+        nullable=True,
+    )
+
+    # ========================
     # Metadata
     # ========================
 

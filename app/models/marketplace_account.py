@@ -10,7 +10,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 
 from app.models.base import Base
@@ -77,6 +77,16 @@ class MarketplaceAccount(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
+    )
+
+    default_from_address: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    default_return_address: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

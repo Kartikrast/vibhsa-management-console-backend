@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.types import DateTime
 
@@ -23,6 +23,16 @@ class Organization(Base):
         nullable=False,
         unique=True,  # as agreed
         index=True,
+    )
+
+    from_address: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    return_address: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     slug: Mapped[str] = mapped_column(

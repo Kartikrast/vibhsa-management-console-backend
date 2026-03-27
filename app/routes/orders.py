@@ -18,8 +18,6 @@ from app.schemas.order import (
     RefundOrderRequest,
     LinkOrderLineRequest,
     CreateShippingLabelRequest,
-    DownloadShippingLabelRequest,
-    VoidShippingLabelRequest,
 )
 from app.services.order_service import (
     acknowledge_order,
@@ -364,6 +362,16 @@ def create_shipping_label_route(
             detail=f"Shipping labels not supported for {order.marketplace}",
         )
 
+    # If a label already exists locally, return stored label info
+    if order.label_tracking_number:
+        return {
+            "label_exists": True,
+            "tracking": order.label_tracking_number,
+            "carrier": order.label_carrier,
+            "service": order.label_carrier_service_type,
+            "tracking_url": order.label_tracking_url,
+        }
+
     # Auto-acknowledge Created orders before generating labels
     if order.status == OrderStatus.CREATED:
         acknowledge_order(
@@ -373,14 +381,70 @@ def create_shipping_label_route(
         )
         db.refresh(order)
 
+    # Resolve from_address: payload → account default → error
     label_data = payload.model_dump()
-    result = adapter.create_shipping_label(
-        db=db,
-        external_order_id=order.external_order_id,
-        label_data=label_data,
-    )
 
-    return result
+    if not label_data.get("from_address"):
+        if account.default_from_address:
+            label_data["from_address"] = account.default_from_address
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No from_address provided and no default address configured on marketplace account",
+            )
+
+    # Resolve return_address: payload → account default → from_address
+    if not label_data.get("return_address"):
+        if account.default_return_address:
+            label_data["return_address"] = account.default_return_address
+        else:
+            label_data["return_address"] = label_data["from_address"]
+
+    try:
+        result = adapter.create_shipping_label(
+            db=db,
+            external_order_id=order.external_order_id,
+            label_data=label_data,
+        )
+    except Exception as e:
+        # Walmart returns 409 if a label already exists for this order
+        if "already generated a label" in str(e):
+            label_info = adapter.get_shipping_label(
+                db=db,
+                external_order_id=order.external_order_id,
+            )
+            # Parse and persist from the Walmart get-label response
+            labels = label_info.get("data", [])
+            if labels:
+                first_label = labels[0] if isinstance(labels, list) else labels
+                order.label_tracking_number = first_label.get("trackingNo")
+                order.label_carrier = first_label.get("carrierShortName") or first_label.get("carrierFullName")
+                order.label_carrier_service_type = first_label.get("carrierServiceType")
+                order.label_tracking_url = first_label.get("trackingUrl")
+                db.commit()
+            return {
+                "label_exists": True,
+                "tracking": order.label_tracking_number,
+                "carrier": order.label_carrier,
+                "service": order.label_carrier_service_type,
+                "tracking_url": order.label_tracking_url,
+            }
+        raise
+
+    # Persist label state on the order
+    order.label_tracking_number = result.get("tracking")
+    order.label_carrier = result.get("carrier")
+    order.label_carrier_service_type = result.get("service")
+    order.label_tracking_url = result.get("tracking_url")
+    db.commit()
+
+    return {
+        "label_exists": False,
+        "tracking": order.label_tracking_number,
+        "carrier": order.label_carrier,
+        "service": order.label_carrier_service_type,
+        "tracking_url": order.label_tracking_url,
+    }
 
 
 @router.get("/{order_id}/shipping-label")
@@ -407,36 +471,23 @@ def get_shipping_label_route(
             detail="Order not found",
         )
 
-    account = (
-        db.query(MarketplaceAccount)
-        .filter(MarketplaceAccount.id == order.marketplace_account_id)
-        .first()
-    )
-
-    if not account:
+    if not order.label_tracking_number:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Marketplace account not found",
+            detail="No shipping label found for this order",
         )
 
-    adapter = get_order_adapter(order.marketplace, account)
-
-    if not hasattr(adapter, "get_shipping_label"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Shipping labels not supported for {order.marketplace}",
-        )
-
-    return adapter.get_shipping_label(
-        db=db,
-        external_order_id=order.external_order_id,
-    )
+    return {
+        "tracking": order.label_tracking_number,
+        "carrier": order.label_carrier,
+        "service": order.label_carrier_service_type,
+        "tracking_url": order.label_tracking_url,
+    }
 
 
-@router.post("/{order_id}/shipping-label/download")
+@router.get("/{order_id}/shipping-label/download")
 def download_shipping_label_route(
     order_id: UUID,
-    payload: DownloadShippingLabelRequest,
     context=Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -456,6 +507,12 @@ def download_shipping_label_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
+        )
+
+    if not order.label_tracking_number or not order.label_carrier:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No shipping label found for this order. Create a label first.",
         )
 
     account = (
@@ -480,15 +537,15 @@ def download_shipping_label_route(
 
     pdf_bytes = adapter.download_shipping_label(
         db=db,
-        carrier=payload.carrier,
-        tracking_number=payload.tracking_number,
+        carrier=order.label_carrier,
+        tracking_number=order.label_tracking_number,
     )
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="label_{order.external_order_id}_{payload.tracking_number}.pdf"'
+            "Content-Disposition": f'attachment; filename="label_{order.external_order_id}_{order.label_tracking_number}.pdf"'
         },
     )
 
@@ -496,7 +553,6 @@ def download_shipping_label_route(
 @router.post("/{order_id}/shipping-label/void")
 def void_shipping_label_route(
     order_id: UUID,
-    payload: VoidShippingLabelRequest,
     context=Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -516,6 +572,12 @@ def void_shipping_label_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
+        )
+
+    if not order.label_tracking_number or not order.label_carrier:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No shipping label found for this order",
         )
 
     account = (
@@ -538,8 +600,17 @@ def void_shipping_label_route(
             detail=f"Shipping label void not supported for {order.marketplace}",
         )
 
-    return adapter.void_shipping_label(
+    result = adapter.void_shipping_label(
         db=db,
-        carrier=payload.carrier,
-        tracking_number=payload.tracking_number,
+        carrier=order.label_carrier,
+        tracking_number=order.label_tracking_number,
     )
+
+    # Clear label state so a new label can be created
+    order.label_tracking_number = None
+    order.label_carrier = None
+    order.label_carrier_service_type = None
+    order.label_tracking_url = None
+    db.commit()
+
+    return result

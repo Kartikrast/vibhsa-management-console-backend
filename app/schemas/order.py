@@ -46,6 +46,8 @@ class OrderListResponse(BaseModel):
     order_date: datetime | None = None
     order_total: float | None = None
     currency: str = "USD"
+    label_tracking_number: str | None = None
+    label_carrier: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -72,6 +74,10 @@ class OrderDetailResponse(BaseModel):
     order_total: float | None = None
     currency: str = "USD"
     last_synced_at: datetime | None = None
+    label_tracking_number: str | None = None
+    label_carrier: str | None = None
+    label_carrier_service_type: str | None = None
+    label_tracking_url: str | None = None
     created_at: datetime
     updated_at: datetime
     lines: list[OrderLineResponse] = []
@@ -147,7 +153,7 @@ class CreateShippingLabelRequest(BaseModel):
     box_dimension_unit: str = "IN"
     box_weight_unit: str = "OZ"
     box_items: list[BoxItemRequest]
-    from_address: FromAddressRequest
+    from_address: FromAddressRequest | None = None
     return_address: FromAddressRequest | None = None
     carrier_name: str = "USPS"
     carrier_service_type: str = "GROUND_ADVANTAGE"
