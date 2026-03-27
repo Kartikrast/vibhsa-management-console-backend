@@ -106,6 +106,7 @@ class WalmartClient:
             method,
             url,
             headers=self._get_headers(),
+            timeout=30.0,
             **kwargs,
         )
 
@@ -374,6 +375,7 @@ class WalmartClient:
             method,
             url,
             headers=self._get_headers(),
+            timeout=30.0,
             **kwargs,
         )
 
@@ -449,7 +451,7 @@ class WalmartClient:
         headers = self._get_headers()
         headers["Accept"] = "application/pdf"
 
-        response = httpx.get(url, headers=headers)
+        response = httpx.get(url, headers=headers, timeout=30.0)
 
         if response.status_code >= 400:
             raise Exception(f"Walmart label download error: {response.text}")
