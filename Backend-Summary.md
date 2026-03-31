@@ -25,6 +25,18 @@ Vibhsa Management System is a **multi-tenant, multi-marketplace management conso
 | Package Mgmt | uv + pyproject.toml |
 
 
+## Alembic Migrations
+
+Database schema changes are managed via **Alembic**, with migration scripts stored in `alembic/versions/`. The project currently has 25+ migration files covering initial schema setup, marketplace integrations, product enhancements, and order management features. Key migrations include:
+- Initial multi-tenancy models (users, organizations, memberships)
+- Product PIM (products, variants, media, inventory)
+- Marketplace accounts and listings
+- Order and order line tables with status tracking
+- Taxonomy tables (categories, product types, materials, colors, sizes)
+- Google taxonomy integration
+
+Migrations are generated with `alembic revision --autogenerate` and applied via `alembic upgrade head`. All models are registered in `app/models/__init__.py` for automatic discovery.
+
 ## Folder Structure
 
 ```
@@ -273,90 +285,84 @@ Header-level `Order.status` is **derived** from all `OrderLine.status` values af
 
 ---
 
-## Next Steps: Amazon Marketplace Integration
+## Current Backend Status (2026-03-31)
 
-### What's Needed
+### Overall
+- Core service is stable: FastAPI + SQLAlchemy 2.0 + PostgreSQL with strong multi-tenancy (`organization_id` scoping) and UUID PKs.
+- Authentication: email/password + JWT + Google OAuth present in `app/routes/auth.py` and `app/services/auth_service.py`.
+- Full product PIM is implemented: CRUD, variants, inventory, media, metadata, status transitions, and taxonomy mapping.
+- Marketplace workflow is fully implemented for Walmart end-to-end: connect, inventory sync, listings import, listing publish, order import/ack/ship/cancel/refund, and feed status polling.
 
-#### 1. Amazon API Client — `app/marketplaces/amazon/client.py`
-Create an `AmazonClient` class similar to `WalmartClient`:
-- **Auth**: Amazon SP-API uses **LWA (Login with Amazon)** OAuth 2.0 with `refresh_token` grant type. You'll need:
-  - `LWA_CLIENT_ID`, `LWA_CLIENT_SECRET`, `LWA_REFRESH_TOKEN` per account
-  - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ROLE_ARN` for STS signing
-  - SP-API endpoints are signed with **AWS Signature V4** (use `requests-aws4auth` or `boto3`)
-- **Config additions** to [app/core/config.py](cci:7://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/core/config.py:0:0-0:0):
-  ```python
-  AMAZON_SP_API_ENDPOINT: str = "https://sellingpartnerapi-na.amazon.com"
-  AMAZON_LWA_ENDPOINT: str = "https://api.amazon.com/auth/o2/token"
-  ```
-- **Key order methods** to implement (matching Walmart's pattern):
-  - `get_orders(created_after, order_statuses, ...)` → SP-API `GET /orders/v0/orders`
-  - `get_order(order_id)` → `GET /orders/v0/orders/{orderId}`
-  - `get_order_items(order_id)` → `GET /orders/v0/orders/{orderId}/orderItems`
-  - Amazon does **not** have an explicit "acknowledge" call — orders move to `Unshipped` automatically
-  - `create_feed(feed_type, content)` → `POST /feeds/2021-06-30/feeds` (used for ship confirm & cancellation)
-  - Ship confirmation and cancellation use **Feed API** with XML payloads (`POST_ORDER_FULFILLMENT_DATA`, `POST_ORDER_ACKNOWLEDGEMENT_DATA`)
+### Marketplace support
+- Walmart
+  - `app/marketplaces/walmart/client.py` + `app/marketplaces/walmart/order_adapter.py` + `app/marketplaces/walmart/inventory_adapter.py`.
+  - `app/routes/marketplaces.py` includes `/walmart/connect`, `/walmart/status`, `/walmart/items`, `/walmart/import-listings`, `/marketplaces/listings`.
+  - Background job and scheduler in `app/tasks/walmart_feed_sync.py` and `app/tasks/order_sync.py` handle feed status + order sync.
+- Amazon (partial)
+  - `app/marketplaces/amazon/client.py` is implemented with LWA token exchange, report generation (`GET_MERCHANT_LISTINGS_ALL_DATA`), and TSV parsing pipeline.
+  - `app/services/marketplace_import/amazon_import.py` imports Amazon listing rows to `MarketplaceListing` with `external_id=ASIN`, SKU mapping, GTIN extraction, price, and status.
+  - Routes exist: `/amazon/connect`, `/amazon/status`, `/amazon/import-listings`.
+  - `app/core/config.py` has Amazon settings including `AMAZON_ENV`, sandbox/production URLs, `AMAZON_LWA_ENDPOINT`.
+  - Missing: `AmazonOrderAdapter` and registry registration in `app/marketplaces/adapter_registry.py` (currently only Walmart). As a result, `app/services/order_import/order_import_service.py` will raise on Amazon accounts if called.
 
-#### 2. Amazon Order Adapter — `app/marketplaces/amazon/order_adapter.py`
-Implement [MarketplaceOrderAdapter](cci:2://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/base_adapter.py:4:0-38:11):
+### Orders
+- `app/services/order_import/order_import_service.py`: adapter-driven import into canonical `Order`, `OrderLine`, `OrderStatusLog` with SKU auto-linking and computed header status.
+- `app/services/order_service.py`: acknowledges, ships, cancels, refunds, and line linking with inventory operations (`reserve_inventory`, `deduct_inventory`, `release_reservation`).
+- `app/routes/orders.py`: /orders endpoints for listing, detail, transitions, and logs.
 
-| Method | Amazon Implementation |
-|---|---|
-| [fetch_new_orders()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:17:4-31:65) | Call `get_orders(order_statuses=["Unshipped"])` + `get_order_items()` per order; normalize into the same dict format as Walmart |
-| [fetch_order()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:33:4-37:47) | `get_order()` + `get_order_items()` |
-| [acknowledge_order()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:39:4-41:88) | No-op or submit `POST_ORDER_ACKNOWLEDGEMENT_DATA` feed |
-| [ship_order()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:43:4-75:9) | Submit `POST_ORDER_FULFILLMENT_DATA` feed with tracking info |
-| [cancel_order()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:77:4-114:9) | Submit order cancellation feed |
-| [refund_order()](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:116:4-159:9) | Not feed-based — Amazon manages refunds through Seller Central or the Refunds API |
+### Inventory
+- `app/services/inventory_service.py` handles concurrency-safe `SELECT FOR UPDATE` on `inventory` rows for reservation and deduction.
+- Marketplace inventory updates are one-way from internal variant inventory to external via `update_marketplace_inventory`.
 
-**Normalization** ([_normalize_order](cci:1://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/walmart/order_adapter.py:165:4-255:9)): Map Amazon's response fields to the same dict shape:
-```python
-{
-    "external_order_id": AmazonOrderId,
-    "customer_order_id": AmazonOrderId,
-    "order_date_ms": PurchaseDate (ISO → ms),
-    "customer_name": ShippingAddress.Name,
-    "shipping_address": { ... },
-    "lines": [
-        {
-            "line_number": OrderItemId,
-            "external_sku": SellerSKU,
-            "product_name": Title,
-            "quantity": QuantityOrdered,
-            "unit_price": ItemPrice.Amount,
-            ...
-        }
-    ],
-    "raw": <original response>,
-}
-```
+### Taxonomy + MDM
+- Taxonomy models and routes for category hierarchy and master data (`ProductType`, `Material`, `Color`, `Size`).
+- Google taxonomy import and flattening scripts in `scripts` and `data/google_taxonomy.txt`.
 
-#### 3. Register in Adapter Registry — [app/marketplaces/adapter_registry.py](cci:7://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/marketplaces/adapter_registry.py:0:0-0:0)
-Add one `elif` block:
-```python
-elif marketplace == "amazon":
-    from app.marketplaces.amazon.order_adapter import AmazonOrderAdapter
-    return AmazonOrderAdapter(account)
-```
+### Webhooks
+- Currently only Walmart placeholder endpoint: `POST /webhooks/walmart/orders`, logs payload.
+- Amazon webhook is not implemented (known design to use SQS/EventBridge). Address later.
 
-#### 4. MarketplaceAccount Row
-When connecting Amazon, create a [MarketplaceAccount](cci:2://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/models/marketplace_account.py:18:0-95:5) row with `marketplace="amazon"` and store:
-- `seller_id` → Amazon Seller/Merchant ID
-- `client_id` → LWA Client ID
-- `client_secret` → LWA Client Secret
-- `refresh_token` → LWA Refresh Token
-- Add a new JSONB column or use existing fields for AWS credentials (`aws_access_key_id`, `aws_secret_access_key`, `role_arn`)
+### Outstanding gaps
+1. Amazon order-side adapters:
+   - `app/marketplaces/amazon/order_adapter.py` (not present)
+   - `app/marketplaces/adapter_registry.py` entry for `amazon`
+   - `app/routes/webhooks.py` endpoint for `/webhooks/amazon/orders` placeholder.
+2. Consistency between marketplace listing publishing and marketplaces (Walmart fully wired; Amazon import exists, but no publish adapter yet).
+3. Add automated tests around Amazon client and import pipeline (if missing in test suite).
 
-#### 5. Connect Route — [app/routes/marketplaces.py](cci:7://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/routes/marketplaces.py:0:0-0:0)
-Add `POST /marketplaces/amazon/connect` endpoint (similar to Walmart connect):
-- Accept Amazon credentials
-- Validate by calling the LWA token endpoint
-- Store tokens in [MarketplaceAccount](cci:2://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/models/marketplace_account.py:18:0-95:5)
+---
 
-#### 6. Listing Import (Optional) — `app/services/marketplace_import/amazon_import.py`
-Similar to `walmart_import.py` — call SP-API Catalog Items or Listings API to import Amazon listings into [MarketplaceListing](cci:2://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/models/marketplace_listing.py:29:0-200:5).
+## Next steps: Amazon marketplace order lifecycle (recommended launch plan)
 
-#### 7. Webhook Endpoint — [app/routes/webhooks.py](cci:7://file:///c:/Users/karti/Documents/work_projects/vibhsa_management_system/backend/app/routes/webhooks.py:0:0-0:0)
-Add `POST /webhooks/amazon/orders` — Amazon uses **SQS/EventBridge notifications** rather than direct HTTP webhooks. You may need an SQS poller or EventBridge subscription instead.
+1. Add `app/marketplaces/amazon/order_adapter.py` implementing `MarketplaceOrderAdapter`.
+2. Register in `app/marketplaces/adapter_registry.py`.
+3. Implement Amazon order APIs:
+   - `get_orders`, `get_order`, `get_order_items` (Orders API)
+   - `create_feed` + `POST_ORDER_FULFILLMENT_DATA` + `POST_ORDER_ACKNOWLEDGEMENT_DATA` (Feeds API)
+4. Add Amazon webhook/event listener design: SQS/EventBridge + secret verification + `/webhooks/amazon/orders` route placeholder.
+5. Harden token refresh and role-based credentials for STS / signature verification.
+6. Add end-to-end tests for Amazon import + order lifecycle in `tests/`.
+
+---
+
+## File status check (existing implementation)
+- `app/core/config.py` includes Walmart + Amazon settings and `ORDER_SYNC_INTERVAL_MINUTES`.
+- `app/main.py` schedules `order_sync.sync_all_orders()` and Walmart feed status sync.
+- `app/marketplaces/adapter_registry.py` currently supports only Walmart for order/inventory adapters.
+- `app/routes/marketplaces.py` has performed implementations for both Walmart and Amazon connect + listing import flows.
+- `app/services/marketplace_import` includes both `walmart_import.py` and `amazon_import.py`.
+- `app/tasks` includes Walmart feed sync and general order sync.
+
+## Deployment Flow
+
+The backend is deployed using **Render's free tier**, directly connected to the [GitHub repository](https://github.com/Kartikrast/vibhsa-management-console-backend) on the `develop` branch. Deployment is automated:
+- **Trigger**: Pushing commits to the `develop` branch automatically triggers a build and deployment on Render.
+- **Process**: Render pulls the latest code, installs dependencies via `uv` (from `pyproject.toml`), runs Alembic migrations (`alembic upgrade head`), and starts the FastAPI server.
+- **Environment**: Uses Render's managed PostgreSQL database; environment variables are configured in Render's dashboard (mirroring `.env` for local development).
+- **Monitoring**: Render provides basic logs and uptime monitoring; background tasks (APScheduler) run within the container.
+- **Limitations**: Free tier includes sleep after 15 minutes of inactivity; suitable for development/testing but may require paid upgrade for production traffic.
+
+
 
 #### 8. Dependencies to Add
 ```
