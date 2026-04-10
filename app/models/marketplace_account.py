@@ -103,6 +103,12 @@ class MarketplaceAccount(Base):
     # Relationships
     organization = relationship("Organization")
 
+    walmart_report_requests = relationship(
+        "WalmartReportRequest",
+        back_populates="marketplace_account",
+        cascade="all, delete-orphan",
+    )
+
     __table_args__ = (
         UniqueConstraint(
             "organization_id",

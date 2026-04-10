@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Vibhsa Management Console"
     APP_ENV: str = "development"
     APP_DEBUG: bool = True
+    APP_URL: str = "http://localhost:8000"  # Frontend URL for invite links
 
     # Database
     DATABASE_URL: str
@@ -18,6 +19,14 @@ class Settings(BaseSettings):
 
     # Google
     GOOGLE_CLIENT_ID: str
+
+    # Email
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = ""
+    EMAIL_FROM_NAME: str = "Vibhsa Management Console"
 
     WALMART_ENV: str = "sandbox"
     WALMART_SANDBOX_URL: str

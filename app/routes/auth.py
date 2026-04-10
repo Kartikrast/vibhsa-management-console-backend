@@ -10,8 +10,10 @@ from app.schemas.auth import (
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.organization_membership import OrganizationMembership
+from app.models.invitation import Invitation
 from app.core.security import hash_password, decode_token
 from app.services.auth_service import authenticate_user, issue_tokens
+from app.services.invite_service import validate_invite_token, accept_invitation
 from app.utils.slug import generate_slug
 from app.services.google_oauth import verify_google_token
 from app.core.dependencies import get_current_context, get_current_user
@@ -34,19 +36,20 @@ def signup(
             detail="Email already registered",
         )
 
-    # 2. Generate org slug and check uniqueness
-    org_slug = generate_slug(payload.organization_name)
-
-    existing_org = (
-        db.query(Organization)
-        .filter(Organization.slug == org_slug)
-        .first()
-    )
-    if existing_org:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization name already in use",
-        )
+    # 2. Handle invite if provided
+    if payload.invite_token:
+        invitation_id = validate_invite_token(payload.invite_token)
+        if not invitation_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired invite token",
+            )
+        invitation = db.query(Invitation).filter(Invitation.id == invitation_id).first()
+        if not invitation or invitation.email != payload.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invite token does not match email",
+            )
 
     # 3. Create user
     user = User(
@@ -57,30 +60,50 @@ def signup(
     db.add(user)
     db.flush()
 
-    # 4. Create organization
-    organization = Organization(
-        name=payload.organization_name,
-        slug=org_slug,
-    )
-    db.add(organization)
-    db.flush()
+    if payload.invite_token:
+        # Accept invitation
+        membership = accept_invitation(db, invitation_id, user)
+        organization_id = membership.organization_id
+    else:
+        # 4. Generate org slug and check uniqueness
+        org_slug = generate_slug(payload.organization_name)
 
-    # 5. Create membership
-    membership = OrganizationMembership(
-        user_id=user.id,
-        organization_id=organization.id,
-        role="owner",
-    )
-    db.add(membership)
+        existing_org = (
+            db.query(Organization)
+            .filter(Organization.slug == org_slug)
+            .first()
+        )
+        if existing_org:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization name already in use",
+            )
 
-    # 6. Commit
+        # 5. Create organization
+        organization = Organization(
+            name=payload.organization_name,
+            slug=org_slug,
+        )
+        db.add(organization)
+        db.flush()
+
+        # 6. Create membership
+        membership = OrganizationMembership(
+            user_id=user.id,
+            organization_id=organization.id,
+            role="owner",
+        )
+        db.add(membership)
+        organization_id = organization.id
+
+    # 7. Commit
     db.commit()
 
-    # 7. Issue tokens
+    # 8. Issue tokens
     return issue_tokens(
         db=db,
         user=user,
-        organization_id=organization.id,
+        organization_id=organization_id,
     )
 
 

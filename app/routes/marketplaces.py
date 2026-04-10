@@ -2,10 +2,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_context
-from app.schemas.marketplace import WalmartConnectRequest, AmazonConnectRequest, UpdateMarketplaceAccountRequest
+from app.schemas.marketplace import (
+    WalmartConnectRequest,
+    AmazonConnectRequest,
+    UpdateMarketplaceAccountRequest,
+    WalmartReportType,
+    WalmartReportRequestCreate,
+    WalmartReportRequestResponse,
+    WalmartReportRequestsList,
+    WalmartRateLimitErrorResponse,
+    WalmartItemListingQualityRequest,
+)
 from app.schemas.marketplace_listing import MarketplaceListingResponse, ImportResponse, MarketplaceInfoResponse
 from app.schemas.listing_link import (
     ListingLinkResponse,
@@ -19,12 +30,18 @@ from app.schemas.listing_link import (
 from app.models.marketplace_account import MarketplaceAccount
 from app.models.marketplace_listing import MarketplaceListing
 from app.models.inventory import Inventory
-from app.marketplaces.walmart.client import WalmartClient
+from app.marketplaces.walmart.client import WalmartClient, WalmartRateLimitError
 from app.marketplaces.amazon.client import AmazonClient
 from app.services.marketplace_import.walmart_import import import_walmart_listings, get_walmart_inventory
 from app.services.marketplace_import.amazon_import import import_amazon_listings
 from app.services.marketplace_linking_service import link_existing_listing, generate_internal_from_listing
 from app.services.inventory_service import update_marketplace_inventory
+from app.services.marketplace_reports.walmart_report_service import (
+    create_walmart_report_request,
+    list_walmart_report_requests,
+    get_walmart_report_request,
+    refresh_walmart_report_status,
+)
 from app.models.taxonomy import (
     Category,
     SubCategory,
@@ -263,6 +280,111 @@ def fetch_walmart_items(
     client = WalmartClient(account)
 
     data = client.get_items(db=db, limit=10)
+
+    return data
+
+@router.get("/walmart/listing-quality")
+def get_walmart_listing_quality(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get seller listing quality score from Walmart."""
+    organization = context["organization"]
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    client = WalmartClient(account)
+
+    try:
+        data = client.get_seller_listing_quality(db=db)
+    except WalmartRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch listing quality from Walmart: {str(e)}",
+        )
+
+    return data
+
+@router.post("/walmart/listing-quality/items")
+def get_walmart_item_listing_quality(
+    payload: Optional[WalmartItemListingQualityRequest] = None,
+    limit: int = 200,
+    next_cursor: Optional[str] = None,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get item-level listing quality details from Walmart.
+
+    Returns item quality score, offer score, content score, issues,
+    and performance for each item. Supports pagination via limit and nextCursor.
+    Optionally, filter by sku or item_id using the request body.
+    """
+    organization = context["organization"]
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    # Build the required Walmart payload if sku or item_id is provided
+    walmart_payload = None
+    if payload:
+        if payload.sku:
+            walmart_payload = {
+                "query": {
+                    "field": "sku",
+                    "value": payload.sku
+                }
+            }
+        elif payload.item_id:
+            walmart_payload = {
+                "query": {
+                    "field": "itemId",
+                    "value": payload.item_id
+                }
+            }
+
+    client = WalmartClient(account)
+
+    try:
+        data = client.get_item_listing_quality_details(
+            db=db,
+            limit=limit,
+            next_cursor=next_cursor,
+            payload=walmart_payload,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch item listing quality from Walmart: {str(e)}",
+        )
 
     return data
 
@@ -685,3 +807,254 @@ def publish_listing(
     db: Session = Depends(get_db),
 ):
     return publish_walmart_listing(db, listing_id)
+
+
+# ========================
+# WALMART REPORTS
+# ========================
+
+@router.get("/walmart/report-types", response_model=List[WalmartReportType])
+def get_walmart_report_types(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get available Walmart report types and versions."""
+    organization = context["organization"]
+
+    # Check if Walmart is connected
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    client = WalmartClient(account)
+    return client.get_available_report_types()
+
+
+@router.post("/walmart/reports", response_model=WalmartReportRequestResponse)
+def create_walmart_report(
+    payload: WalmartReportRequestCreate,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Create a new Walmart report request."""
+    organization = context["organization"]
+
+    # Check if Walmart is connected
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    try:
+        # Parse datetime strings
+        data_start_time = datetime.fromisoformat(payload.data_start_time.replace('Z', '+00:00'))
+        data_end_time = datetime.fromisoformat(payload.data_end_time.replace('Z', '+00:00'))
+
+        report_request = create_walmart_report_request(
+            db=db,
+            organization_id=organization.id,
+            marketplace_account_id=account.id,
+            report_type=payload.report_type,
+            report_version=payload.report_version,
+            data_start_time=data_start_time,
+            data_end_time=data_end_time,
+            row_filters=payload.row_filters,
+            exclude_columns=payload.exclude_columns,
+        )
+
+        return WalmartReportRequestResponse(
+            id=str(report_request.id),
+            external_request_id=report_request.external_request_id,
+            report_type=report_request.report_type,
+            report_version=report_request.report_version,
+            data_start_time=report_request.data_start_time.isoformat(),
+            data_end_time=report_request.data_end_time.isoformat(),
+            status=report_request.status,
+            download_url=report_request.download_url,
+            expires_at=report_request.expires_at.isoformat() if report_request.expires_at else None,
+            completed_at=report_request.completed_at.isoformat() if report_request.completed_at else None,
+            failed_at=report_request.failed_at.isoformat() if report_request.failed_at else None,
+            error=report_request.error,
+            created_at=report_request.created_at.isoformat(),
+            updated_at=report_request.updated_at.isoformat(),
+        )
+    except WalmartRateLimitError as e:
+        # Calculate retry_after_seconds if possible
+        retry_after = None
+        if e.next_replenishment_time:
+            now = datetime.now(timezone.utc)
+            if e.next_replenishment_time > now:
+                retry_after = int((e.next_replenishment_time - now).total_seconds())
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=WalmartRateLimitErrorResponse(
+                remaining_tokens=e.remaining_tokens,
+                max_tokens=e.max_tokens,
+                next_replenishment_time=e.next_replenishment_time.isoformat() if e.next_replenishment_time else None,
+                retry_after_seconds=retry_after,
+            ).model_dump(),
+        )
+
+
+@router.get("/walmart/reports", response_model=WalmartReportRequestsList)
+def list_walmart_reports(
+    status_filter: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """List Walmart report requests."""
+    organization = context["organization"]
+
+    # Check if Walmart is connected
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    reports = list_walmart_report_requests(
+        db=db,
+        organization_id=organization.id,
+        marketplace_account_id=account.id,
+        status=status_filter,
+        limit=limit,
+        offset=offset,
+    )
+
+    # Convert to response format
+    report_responses = []
+    for report in reports:
+        report_responses.append(WalmartReportRequestResponse(
+            id=str(report.id),
+            external_request_id=report.external_request_id,
+            report_type=report.report_type,
+            report_version=report.report_version,
+            data_start_time=report.data_start_time.isoformat(),
+            data_end_time=report.data_end_time.isoformat(),
+            status=report.status,
+            download_url=report.download_url,
+            expires_at=report.expires_at.isoformat() if report.expires_at else None,
+            completed_at=report.completed_at.isoformat() if report.completed_at else None,
+            failed_at=report.failed_at.isoformat() if report.failed_at else None,
+            error=report.error,
+            created_at=report.created_at.isoformat(),
+            updated_at=report.updated_at.isoformat(),
+        ))
+
+    return WalmartReportRequestsList(
+        reports=report_responses,
+        total=len(report_responses),  # For simplicity, could be improved with count query
+    )
+
+
+@router.get("/walmart/reports/{report_id}", response_model=WalmartReportRequestResponse)
+def get_walmart_report(
+    report_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get a specific Walmart report request."""
+    organization = context["organization"]
+
+    try:
+        report_request = get_walmart_report_request(
+            db=db,
+            organization_id=organization.id,
+            report_request_id=report_id,
+        )
+
+        return WalmartReportRequestResponse(
+            id=str(report_request.id),
+            external_request_id=report_request.external_request_id,
+            report_type=report_request.report_type,
+            report_version=report_request.report_version,
+            data_start_time=report_request.data_start_time.isoformat(),
+            data_end_time=report_request.data_end_time.isoformat(),
+            status=report_request.status,
+            download_url=report_request.download_url,
+            expires_at=report_request.expires_at.isoformat() if report_request.expires_at else None,
+            completed_at=report_request.completed_at.isoformat() if report_request.completed_at else None,
+            failed_at=report_request.failed_at.isoformat() if report_request.failed_at else None,
+            error=report_request.error,
+            created_at=report_request.created_at.isoformat(),
+            updated_at=report_request.updated_at.isoformat(),
+        )
+    except WalmartRateLimitError as e:
+        retry_after = None
+        if e.next_replenishment_time:
+            now = datetime.now(timezone.utc)
+            if e.next_replenishment_time > now:
+                retry_after = int((e.next_replenishment_time - now).total_seconds())
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=WalmartRateLimitErrorResponse(
+                remaining_tokens=e.remaining_tokens,
+                max_tokens=e.max_tokens,
+                next_replenishment_time=e.next_replenishment_time.isoformat() if e.next_replenishment_time else None,
+                retry_after_seconds=retry_after,
+            ).model_dump(),
+        )
+
+
+@router.post("/walmart/reports/{report_id}/refresh")
+def refresh_walmart_report_status(
+    report_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Refresh the status of a Walmart report request."""
+    organization = context["organization"]
+
+    try:
+        report_request = refresh_walmart_report_status(
+            db=db,
+            organization_id=organization.id,
+            report_request_id=report_id,
+        )
+
+        return {
+            "message": "Report status refreshed",
+            "status": report_request.status,
+            "download_url": report_request.download_url,
+        }
+    except WalmartRateLimitError as e:
+        retry_after = None
+        if e.next_replenishment_time:
+            now = datetime.now(timezone.utc)
+            if e.next_replenishment_time > now:
+                retry_after = int((e.next_replenishment_time - now).total_seconds())
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=WalmartRateLimitErrorResponse(
+                remaining_tokens=e.remaining_tokens,
+                max_tokens=e.max_tokens,
+                next_replenishment_time=e.next_replenishment_time.isoformat() if e.next_replenishment_time else None,
+                retry_after_seconds=retry_after,
+            ).model_dump(),
+        )

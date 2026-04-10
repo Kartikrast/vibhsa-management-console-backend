@@ -3,6 +3,7 @@ import uuid
 import base64
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
+from typing import Optional
 
 from app.core.config import get_settings
 
@@ -12,6 +13,17 @@ DEFAULT_BOX = {
     "boxWeightUnit": "OZ", "boxLength": 6, "boxWidth": 6,
     "boxHeight": 4, "boxWeight": 16, "boxDimensionUnit": "IN"
 }
+
+
+class WalmartRateLimitError(Exception):
+    """Raised when Walmart API returns a 429 rate limit response."""
+
+    def __init__(self, remaining_tokens: int, max_tokens: int, next_replenishment_time: Optional[datetime]):
+        self.remaining_tokens = remaining_tokens
+        self.max_tokens = max_tokens
+        self.next_replenishment_time = next_replenishment_time
+        super().__init__(f"Walmart API rate limit exceeded. Remaining tokens: {remaining_tokens}/{max_tokens}. Replenishes at: {next_replenishment_time}")
+
 
 class WalmartClient:
     def __init__(self, account=None, client_id=None, client_secret=None):
@@ -34,15 +46,21 @@ class WalmartClient:
         else:
             self.base_url = settings.WALMART_SANDBOX_URL
 
-    def _get_headers(self):
-        return {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
+    def _get_headers(self, include_basic_auth: bool = False):
+        headers = {
+            "WM_SEC.ACCESS_TOKEN": self.account.access_token,
             "WM_SVC.NAME": "Vibhsa",
             "WM_QOS.CORRELATION_ID": str(uuid.uuid4()),
             "WM_CONSUMER.CHANNEL.TYPE": self.account.seller_id,  # from Walmart portal
-            "WM_SEC.ACCESS_TOKEN": self.account.access_token,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
+        if include_basic_auth:
+            encoded_credentials = base64.b64encode(
+                f"{self.client_id}:{self.client_secret}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {encoded_credentials}"
+        return headers
 
     def _refresh_token_if_needed(self, db):
         if not self.account.token_expiry:
@@ -94,7 +112,32 @@ class WalmartClient:
 
         return response.json()
 
-    def request(self, method, endpoint, db, **kwargs):
+    def _parse_rate_limit_headers(self, response: httpx.Response) -> Optional[dict]:
+        """Parse Walmart rate limit headers from response."""
+        headers = response.headers
+        current_tokens = headers.get("x-current-token-count")
+        max_tokens = headers.get("x-max-token-count")
+        next_replenishment = headers.get("x-next-replenishment-time")
+
+        if not current_tokens or not max_tokens:
+            return None
+
+        try:
+            current = int(current_tokens)
+            max_t = int(max_tokens)
+            replenish_time = None
+            if next_replenishment:
+                # Assuming ISO format, adjust if needed
+                replenish_time = datetime.fromisoformat(next_replenishment.replace('Z', '+00:00'))
+            return {
+                "remaining_tokens": current,
+                "max_tokens": max_t,
+                "next_replenishment_time": replenish_time
+            }
+        except (ValueError, TypeError):
+            return None
+
+    def request(self, method, endpoint, db, include_basic_auth: bool = False, **kwargs):
         """
         Centralized request method
         """
@@ -105,16 +148,76 @@ class WalmartClient:
         response = httpx.request(
             method,
             url,
-            headers=self._get_headers(),
+            headers=self._get_headers(include_basic_auth=include_basic_auth),
             timeout=30.0,
             **kwargs,
         )
+
+        if response.status_code == 429:
+            # Parse rate limit info and raise specific exception
+            rate_limit_info = self._parse_rate_limit_headers(response)
+            if rate_limit_info:
+                raise WalmartRateLimitError(
+                    remaining_tokens=rate_limit_info["remaining_tokens"],
+                    max_tokens=rate_limit_info["max_tokens"],
+                    next_replenishment_time=rate_limit_info["next_replenishment_time"]
+                )
+            else:
+                raise Exception(f"Walmart API rate limit exceeded: {response.text}")
 
         if response.status_code >= 400:
             raise Exception(f"Walmart API error: {response.text}")
 
         return response.json()
+    
+    # ========================
+    # LISTINGS MANAGEMENT
+    # ========================
 
+    def get_seller_listing_quality(self, db):
+        """
+        Get seller listing quality
+        GET /v3/insights/items/listingQuality/score
+        """
+        endpoint = "/v3/insights/items/listingQuality/score"
+        return self.request(method="GET", endpoint=endpoint, db=db, include_basic_auth=True)
+
+    def get_item_listing_quality_details(self, db, limit: int = 200, next_cursor: str = None, payload: dict = None):
+        """
+        Get item-level listing quality details.
+        POST /v3/insights/items/listingQuality/items
+
+        Returns item quality score, offer score, content score and issues,
+        and item performance for each item.
+
+        Query params:
+            limit: number of items to return (default 200)
+            nextCursor: pagination cursor from previous response
+
+        Request body (optional):
+            payload with filters, e.g.:
+            {
+                "query": {
+                    "filters": [...]
+                }
+            }
+        """
+        endpoint = f"/v3/insights/items/listingQuality/items?limit={limit}"
+        if next_cursor:
+            endpoint += f"&nextCursor={quote(next_cursor, safe='')}"
+
+        kwargs = {}
+        if payload:
+            kwargs["json"] = payload
+
+        return self.request(
+            method="POST",
+            endpoint=endpoint,
+            db=db,
+            include_basic_auth=True,
+            **kwargs,
+        )
+        
     def get_items(self, db, limit: int = 50, next_cursor: str = None):
         """
         Fetch product listings from Walmart.
@@ -465,3 +568,84 @@ class WalmartClient:
         """
         endpoint = f"/v3/shipping/labels/carriers/{carrier_short_name}/trackings/{tracking_no}"
         return self.request(method="DELETE", endpoint=endpoint, db=db)
+
+    # ========================
+    # REPORT MANAGEMENT
+    # ========================
+
+    def get_available_report_types(self):
+        """
+        Get list of supported Walmart report types.
+        Based on Walmart API documentation.
+        """
+        return [
+            {"type": "ITEM", "name": "Item Report", "versions": ["v1", "v2", "v3", "v4", "v5"]},
+            {"type": "INVENTORY", "name": "Inventory Report", "versions": ["v1"]},
+            {"type": "ORDER", "name": "Order Report", "versions": ["v1"]},
+            {"type": "RETURN", "name": "Return Report", "versions": ["v1"]},
+            {"type": "PERFORMANCE", "name": "Performance Report", "versions": ["v1"]},
+            {"type": "PROMOTION", "name": "Promotion Report", "versions": ["v1"]},
+        ]
+
+    def create_report_request(self, db, report_type: str, report_version: str, data_start_time: datetime, data_end_time: datetime, row_filters=None, exclude_columns=None):
+        """
+        Create a Walmart report request.
+        POST /v3/reports/reportRequests
+
+        Payload example:
+        {
+            "reportType": "ITEM",
+            "reportVersion": "v1",
+            "dataStartTime": "2023-01-01T00:00:00Z",
+            "dataEndTime": "2023-01-31T23:59:59Z",
+            "rowFilters": {...},
+            "excludeColumns": [...]
+        }
+        """
+        payload = {
+            "reportType": report_type,
+            "reportVersion": report_version,
+            "dataStartTime": data_start_time.isoformat().replace('+00:00', 'Z'),
+            "dataEndTime": data_end_time.isoformat().replace('+00:00', 'Z'),
+        }
+
+        if row_filters:
+            payload["rowFilters"] = row_filters
+        if exclude_columns:
+            payload["excludeColumns"] = exclude_columns
+
+        endpoint = "/v3/reports/reportRequests"
+        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+
+    def get_report_status(self, db, request_id: str):
+        """
+        Get the status of a report request.
+        GET /v3/reports/reportRequests/{requestId}
+        """
+        endpoint = f"/v3/reports/reportRequests/{request_id}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def get_report_download_url(self, db, request_id: str):
+        """
+        Get the download URL for a completed report.
+        GET /v3/reports/downloadReport?requestId={requestId}
+        """
+        endpoint = f"/v3/reports/downloadReport?requestId={request_id}"
+        return self.request(method="GET", endpoint=endpoint, db=db)
+
+    def download_report(self, db, download_url: str) -> bytes:
+        """
+        Download the report file from the provided URL.
+        This is a direct download, not through the Walmart API proxy.
+        """
+        self._refresh_token_if_needed(db)
+
+        headers = self._get_headers()
+        headers["Accept"] = "*/*"  # Accept any content type
+
+        response = httpx.get(download_url, headers=headers, timeout=60.0)
+
+        if response.status_code >= 400:
+            raise Exception(f"Report download failed: {response.text}")
+
+        return response.content

@@ -15,8 +15,11 @@ from app.routes import products
 from app.routes import taxonomy
 from app.routes import orders
 from app.routes import webhooks
+from app.routes import invitations
+from app.routes import organizations
 from app.tasks.order_sync import sync_all_orders
 from app.tasks.walmart_feed_sync import sync_walmart_feed_status
+from app.tasks.invite_cleanup import cleanup_expired_invitations
 
 async def walmart_feed_worker():
 
@@ -69,6 +72,8 @@ app.include_router(products.router)
 app.include_router(taxonomy.router)
 app.include_router(orders.router)
 app.include_router(webhooks.router)
+app.include_router(invitations.router)
+app.include_router(organizations.router)
 
 # allow CORS origins
 app.add_middleware(
@@ -91,6 +96,14 @@ scheduler.add_job(
     "interval",
     minutes=settings.ORDER_SYNC_INTERVAL_MINUTES,
     id="order_sync",
+    replace_existing=True,
+)
+
+scheduler.add_job(
+    cleanup_expired_invitations,
+    "interval",
+    hours=24,  # Run daily
+    id="invite_cleanup",
     replace_existing=True,
 )
 

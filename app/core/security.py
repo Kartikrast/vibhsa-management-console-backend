@@ -10,7 +10,7 @@ from app.core.config import get_settings
 settings = get_settings()
 
 pwd_context = CryptContext(
-    schemes=["argon2"],
+    schemes=["bcrypt", "argon2"],
     deprecated="auto",
 )
 

@@ -64,3 +64,15 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+
+    invitations = relationship(
+        "Invitation",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+
+    walmart_report_requests = relationship(
+        "WalmartReportRequest",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
