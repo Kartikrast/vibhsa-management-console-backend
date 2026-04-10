@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -32,7 +33,7 @@ from app.models.marketplace_listing import MarketplaceListing
 from app.models.inventory import Inventory
 from app.marketplaces.walmart.client import WalmartClient, WalmartRateLimitError
 from app.marketplaces.amazon.client import AmazonClient
-from app.services.marketplace_import.walmart_import import import_walmart_listings, get_walmart_inventory
+from app.services.marketplace_import.walmart_import import import_walmart_listings, get_walmart_inventory, sync_listing_content_from_quality, sync_single_listing_quality
 from app.services.marketplace_import.amazon_import import import_amazon_listings
 from app.services.marketplace_linking_service import link_existing_listing, generate_internal_from_listing
 from app.services.inventory_service import update_marketplace_inventory
@@ -54,6 +55,8 @@ from app.models.taxonomy import (
 from app.services.marketplace_publish.walmart_publish_service import (
     publish_walmart_listing,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/marketplaces", tags=["Marketplaces"])
 
@@ -381,6 +384,7 @@ def get_walmart_item_listing_quality(
             detail=str(e),
         )
     except Exception as e:
+        logger.exception("Walmart listing quality items API failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to fetch item listing quality from Walmart: {str(e)}",
@@ -810,6 +814,125 @@ def publish_listing(
 
 
 # ========================
+# WALMART LISTING QUALITY SYNC
+# ========================
+
+@router.get("/listings/{listing_id}/quality")
+def get_listing_quality(
+    listing_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Get stored listing quality data from DB."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    return {
+        "listing_id": str(listing.id),
+        "marketplace_sku": listing.marketplace_sku,
+        "quality_score": float(listing.listing_quality_score) if listing.listing_quality_score else None,
+        "quality_data": listing.listing_quality_data,
+        "marketplace_description": listing.marketplace_description,
+        "marketplace_bullet_points": listing.marketplace_bullet_points,
+        "has_quality_data": listing.listing_quality_data is not None,
+    }
+
+
+@router.post("/listings/{listing_id}/sync-quality")
+def sync_listing_quality(
+    listing_id: UUID,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Fetch and store listing quality data for a single listing."""
+    organization = context["organization"]
+
+    listing = db.query(MarketplaceListing).filter(
+        MarketplaceListing.id == listing_id,
+        MarketplaceListing.organization_id == organization.id,
+    ).first()
+
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    if not listing.marketplace_sku:
+        raise HTTPException(status_code=400, detail="Listing has no marketplace SKU")
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.id == listing.marketplace_account_id,
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Marketplace account not found")
+
+    try:
+        result = sync_single_listing_quality(
+            db=db,
+            listing=listing,
+            marketplace_account=account,
+        )
+        return result
+    except WalmartRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.exception("Failed to sync quality for listing %s", listing_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to sync listing quality: {str(e)}",
+        )
+
+
+@router.post("/walmart/sync-listing-content")
+def sync_walmart_listing_content(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Sync listing content (description, bullets) from Walmart listing quality data."""
+    organization = context["organization"]
+
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Walmart not connected",
+        )
+
+    try:
+        result = sync_listing_content_from_quality(
+            db=db,
+            organization_id=organization.id,
+            marketplace_account=account,
+        )
+        return result
+    except WalmartRateLimitError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to sync listing content from Walmart: {str(e)}",
+        )
+
+
+# ========================
 # WALMART REPORTS
 # ========================
 
@@ -909,6 +1032,12 @@ def create_walmart_report(
                 next_replenishment_time=e.next_replenishment_time.isoformat() if e.next_replenishment_time else None,
                 retry_after_seconds=retry_after,
             ).model_dump(),
+        )
+    except Exception as e:
+        logger.exception("Failed to create Walmart report")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to create Walmart report: {str(e)}",
         )
 
 

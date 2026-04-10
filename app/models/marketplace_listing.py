@@ -179,6 +179,20 @@ class MarketplaceListing(Base):
         nullable=True,
     )
 
+    # ========================
+    # Listing Quality Data
+    # ========================
+
+    listing_quality_data: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
+    listing_quality_score: Mapped[float | None] = mapped_column(
+        Numeric(6, 2),
+        nullable=True,
+    )
+
 
     # ========================
     # Status Management

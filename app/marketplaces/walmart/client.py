@@ -1,11 +1,14 @@
 import httpx
 import uuid
 import base64
+import logging
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from typing import Optional
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -119,16 +122,14 @@ class WalmartClient:
         max_tokens = headers.get("x-max-token-count")
         next_replenishment = headers.get("x-next-replenishment-time")
 
-        if not current_tokens or not max_tokens:
-            return None
-
         try:
-            current = int(current_tokens)
-            max_t = int(max_tokens)
+            current = int(current_tokens) if current_tokens else 0
+            max_t = int(max_tokens) if max_tokens else 0
             replenish_time = None
             if next_replenishment:
-                # Assuming ISO format, adjust if needed
-                replenish_time = datetime.fromisoformat(next_replenishment.replace('Z', '+00:00'))
+                # Walmart returns Unix timestamp in milliseconds
+                replenish_ms = int(next_replenishment)
+                replenish_time = datetime.fromtimestamp(replenish_ms / 1000, tz=timezone.utc)
             return {
                 "remaining_tokens": current,
                 "max_tokens": max_t,
@@ -149,24 +150,25 @@ class WalmartClient:
             method,
             url,
             headers=self._get_headers(include_basic_auth=include_basic_auth),
-            timeout=30.0,
+            timeout=60.0,
             **kwargs,
         )
 
-        if response.status_code == 429:
+        if response.status_code == 429 or "REQUEST_THRESHOLD_VIOLATED" in response.text:
             # Parse rate limit info and raise specific exception
             rate_limit_info = self._parse_rate_limit_headers(response)
-            if rate_limit_info:
-                raise WalmartRateLimitError(
-                    remaining_tokens=rate_limit_info["remaining_tokens"],
-                    max_tokens=rate_limit_info["max_tokens"],
-                    next_replenishment_time=rate_limit_info["next_replenishment_time"]
-                )
-            else:
-                raise Exception(f"Walmart API rate limit exceeded: {response.text}")
+            raise WalmartRateLimitError(
+                remaining_tokens=rate_limit_info["remaining_tokens"] if rate_limit_info else 0,
+                max_tokens=rate_limit_info["max_tokens"] if rate_limit_info else 0,
+                next_replenishment_time=rate_limit_info["next_replenishment_time"] if rate_limit_info else None,
+            )
 
         if response.status_code >= 400:
-            raise Exception(f"Walmart API error: {response.text}")
+            logger.error(
+                "Walmart API error: %s %s -> %d: %s",
+                method, endpoint, response.status_code, response.text[:500],
+            )
+            raise Exception(f"Walmart API error ({response.status_code}): {response.text}")
 
         return response.json()
     
@@ -579,43 +581,41 @@ class WalmartClient:
         Based on Walmart API documentation.
         """
         return [
-            {"type": "ITEM", "name": "Item Report", "versions": ["v1", "v2", "v3", "v4", "v5"]},
-            {"type": "INVENTORY", "name": "Inventory Report", "versions": ["v1"]},
-            {"type": "ORDER", "name": "Order Report", "versions": ["v1"]},
-            {"type": "RETURN", "name": "Return Report", "versions": ["v1"]},
-            {"type": "PERFORMANCE", "name": "Performance Report", "versions": ["v1"]},
-            {"type": "PROMOTION", "name": "Promotion Report", "versions": ["v1"]},
+            {"type": "ITEM", "name": "Item Report", "versions": ["v1"]},
+            {"type": "ITEM_PERFORMANCE", "name": "Item Performance Report", "versions": ["v1"]},
+            {"type": "BUYBOX", "name": "Buy Box Insights Report", "versions": ["v1"]},
+            {"type": "CPA", "name": "CPA Report", "versions": ["v1"]},
+            {"type": "PROMO", "name": "Promotions Report", "versions": ["v1"]},
+            {"type": "RETURN_OVERRIDES", "name": "Return Item Overrides Report", "versions": ["v1"]},
+            {"type": "SHIPPING_CONFIGURATION", "name": "Shipping Configuration Report", "versions": ["v1"]},
+            {"type": "SHIPPING_PROGRAM", "name": "Shipping Program Report", "versions": ["v1"]},
         ]
 
     def create_report_request(self, db, report_type: str, report_version: str, data_start_time: datetime, data_end_time: datetime, row_filters=None, exclude_columns=None):
         """
         Create a Walmart report request.
-        POST /v3/reports/reportRequests
+        POST /v3/reports/reportRequests?reportType={reportType}&reportVersion={reportVersion}
 
-        Payload example:
-        {
-            "reportType": "ITEM",
-            "reportVersion": "v1",
-            "dataStartTime": "2023-01-01T00:00:00Z",
-            "dataEndTime": "2023-01-31T23:59:59Z",
-            "rowFilters": {...},
-            "excludeColumns": [...]
-        }
+        Query params: reportType (required), reportVersion (required)
+        Body params: rowFilters, excludeColumns, dataStartTime, dataEndTime
         """
-        payload = {
-            "reportType": report_type,
-            "reportVersion": report_version,
-            "dataStartTime": data_start_time.isoformat().replace('+00:00', 'Z'),
-            "dataEndTime": data_end_time.isoformat().replace('+00:00', 'Z'),
-        }
+        endpoint = f"/v3/reports/reportRequests?reportType={quote(report_type, safe='')}&reportVersion={quote(report_version, safe='')}"
 
+        payload = {}
+        if data_start_time:
+            payload["dataStartTime"] = data_start_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        if data_end_time:
+            payload["dataEndTime"] = data_end_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         if row_filters:
             payload["rowFilters"] = row_filters
         if exclude_columns:
             payload["excludeColumns"] = exclude_columns
 
-        endpoint = "/v3/reports/reportRequests"
-        return self.request(method="POST", endpoint=endpoint, db=db, json=payload)
+        kwargs = {}
+        if payload:
+            kwargs["json"] = payload
+
+        return self.request(method="POST", endpoint=endpoint, db=db, **kwargs)
 
     def get_report_status(self, db, request_id: str):
         """

@@ -1,6 +1,9 @@
+import re
+from uuid import UUID
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.marketplace_listing import MarketplaceListing
-from app.marketplaces.walmart.client import WalmartClient
+from app.marketplaces.walmart.client import WalmartClient, WalmartRateLimitError
 from decimal import Decimal
 from datetime import datetime, timezone
 
@@ -127,4 +130,169 @@ def get_walmart_inventory(db: Session, marketplace_account, sku):
     available_quantity = response.get("quantity", {}).get("amount", 0)
 
     return {"sku": sku, "available_quantity": available_quantity}
+
+
+def _parse_html_bullets(html: str) -> list[str]:
+    """Extract bullet point texts from HTML <li> tags."""
+    items = re.findall(r"<li[^>]*>(.*?)</li>", html, re.DOTALL | re.IGNORECASE)
+    # Strip any remaining HTML tags and whitespace from each item
+    clean = []
+    for item in items:
+        text = re.sub(r"<[^>]+>", "", item).strip()
+        if text:
+            clean.append(text)
+    return clean
+
+
+def _extract_content_attributes(item_data: dict) -> dict:
+    """Extract description and bullet points from Walmart listing quality item data.
+
+    - product_short_description → marketplace_description
+    - product_long_description (HTML with <li> tags) → marketplace_bullet_points
+    """
+    result = {"description": None, "bullet_points": None}
+
+    score_details = item_data.get("score", {}).get("details", {})
+    content_quality = score_details.get("contentQuality", {})
+    attributes = content_quality.get("attributes", [])
+
+    for attr in attributes:
+        name = attr.get("name", "")
+        value = attr.get("value")
+        if not value:
+            continue
+
+        if name == "product_short_description":
+            result["description"] = value
+        elif name == "product_long_description":
+            bullets = _parse_html_bullets(value)
+            if bullets:
+                result["bullet_points"] = bullets
+
+    return result
+
+
+def sync_listing_content_from_quality(
+    db: Session,
+    organization_id: UUID,
+    marketplace_account,
+) -> dict:
+    """Fetch listing quality data from Walmart and sync content into listings.
+
+    Stores raw quality JSON, quality score, description, and bullet points.
+    """
+    client = WalmartClient(marketplace_account)
+
+    updated_count = 0
+    total_processed = 0
+    next_cursor = None
+
+    while True:
+        response = client.get_item_listing_quality_details(
+            db=db,
+            limit=200,
+            next_cursor=next_cursor,
+        )
+
+        items = response.get("payload", [])
+        total_processed += len(items)
+
+        for item_data in items:
+            sku = item_data.get("sku")
+            if not sku:
+                continue
+
+            listing = db.query(MarketplaceListing).filter(
+                MarketplaceListing.organization_id == organization_id,
+                MarketplaceListing.marketplace == "walmart",
+                MarketplaceListing.marketplace_sku == sku,
+            ).first()
+
+            if not listing:
+                continue
+
+            # Store raw quality data
+            listing.listing_quality_data = item_data
+
+            # Store quality score
+            quality_score = item_data.get("score", {}).get("overallScore")
+            if quality_score is not None:
+                try:
+                    listing.listing_quality_score = Decimal(str(quality_score))
+                except (ValueError, TypeError):
+                    pass
+
+            # Extract and store content attributes
+            content = _extract_content_attributes(item_data)
+
+            if content["description"] and not listing.marketplace_description:
+                listing.marketplace_description = content["description"]
+
+            if content["bullet_points"] and not listing.marketplace_bullet_points:
+                listing.marketplace_bullet_points = content["bullet_points"]
+
+            updated_count += 1
+
+        next_cursor = response.get("meta", {}).get("nextCursor")
+        if not next_cursor or not items:
+            break
+
+    db.commit()
+
+    return {
+        "total_processed": total_processed,
+        "updated": updated_count,
+        "message": "Listing quality content sync completed",
+    }
+
+
+def sync_single_listing_quality(
+    db: Session,
+    listing: MarketplaceListing,
+    marketplace_account,
+) -> dict:
+    """Fetch and store listing quality data for a single listing."""
+    client = WalmartClient(marketplace_account)
+
+    response = client.get_item_listing_quality_details(
+        db=db,
+        limit=1,
+        payload={"query": {"field": "sku", "value": listing.marketplace_sku}},
+    )
+
+    items = response.get("payload", [])
+    if not items:
+        return {"updated": False, "message": "No quality data returned for this SKU"}
+
+    item_data = items[0]
+
+    # Store raw quality data
+    listing.listing_quality_data = item_data
+
+    # Store quality score
+    quality_score = item_data.get("score", {}).get("overallScore")
+    if quality_score is not None:
+        try:
+            listing.listing_quality_score = Decimal(str(quality_score))
+        except (ValueError, TypeError):
+            pass
+
+    # Extract and store content attributes
+    content = _extract_content_attributes(item_data)
+
+    if content["description"]:
+        listing.marketplace_description = content["description"]
+
+    if content["bullet_points"]:
+        listing.marketplace_bullet_points = content["bullet_points"]
+
+    db.commit()
+    db.refresh(listing)
+
+    return {
+        "updated": True,
+        "listing_id": str(listing.id),
+        "quality_score": float(listing.listing_quality_score) if listing.listing_quality_score else None,
+        "message": "Listing quality synced",
+    }
 

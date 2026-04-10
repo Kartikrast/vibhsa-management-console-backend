@@ -19,6 +19,7 @@ class MarketplaceListingResponse(BaseModel):
     created_at: datetime
     marketplace_product_type: Optional[str]
     marketplace_url: Optional[str]
+    listing_quality_score: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
@@ -33,6 +34,7 @@ class MarketplaceListingDetailResponse(MarketplaceListingResponse):
     marketplace_bullet_points: List[str] = []
     marketplace_customer_rating: Optional[str] = None
     brand: Optional[str] = None
+    listing_quality_data: Optional[dict] = None
 
 class ImportResponse(BaseModel):
     imported: int
