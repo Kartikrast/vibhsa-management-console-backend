@@ -581,14 +581,24 @@ class WalmartClient:
         Based on Walmart API documentation.
         """
         return [
-            {"type": "ITEM", "name": "Item Report", "versions": ["v1"]},
+            {"type": "ITEM", "name": "Item Report", "versions": ["v1", "v2", "v3", "v4", "v5", "v6"]},
+            {"type": "INVENTORY", "name": "Inventory Report", "versions": ["v1"]},
+            {"type": "CANCELLATION", "name": "Cancellation Report", "versions": ["v1"]},
+            {"type": "DELIVERY_DEFECT", "name": "Delivery Defect Report", "versions": ["v1"]},
             {"type": "ITEM_PERFORMANCE", "name": "Item Performance Report", "versions": ["v1"]},
-            {"type": "BUYBOX", "name": "Buy Box Insights Report", "versions": ["v1"]},
-            {"type": "CPA", "name": "CPA Report", "versions": ["v1"]},
             {"type": "PROMO", "name": "Promotions Report", "versions": ["v1"]},
             {"type": "RETURN_OVERRIDES", "name": "Return Item Overrides Report", "versions": ["v1"]},
+            {"type": "CPA", "name": "CPA Report", "versions": ["v1"]},
             {"type": "SHIPPING_CONFIGURATION", "name": "Shipping Configuration Report", "versions": ["v1"]},
             {"type": "SHIPPING_PROGRAM", "name": "Shipping Program Report", "versions": ["v1"]},
+            {"type": "FITMENT_MISSING_ATTR", "name": "Fitment Missing Attributes Report", "versions": ["v1"]},
+            {"type": "FITMENT_ACES_COVERAGE", "name": "Fitment ACES Coverage Report", "versions": ["v1"]},
+            {"type": "BUYBOX", "name": "Buy Box Insights Report", "versions": ["v1"]},
+            {"type": "ASSORTMENT_RECOMMENDATIONS", "name": "Assortment Recommendations Report", "versions": ["v1"]},
+            {"type": "LAGTIME", "name": "Lag Time Report", "versions": ["v1"]},
+            {"type": "API_traffic_report", "name": "API Traffic Report", "versions": ["v1"]},
+            {"type": "INVENTORY_RECOMMENDATIONS", "name": "Inventory Recommendations Report", "versions": ["v1"]},
+            {"type": "SEM_PERFORMANCE", "name": "SEM Performance Report", "versions": ["v1"]},
         ]
 
     def create_report_request(self, db, report_type: str, report_version: str, data_start_time: datetime, data_end_time: datetime, row_filters=None, exclude_columns=None):
@@ -649,3 +659,91 @@ class WalmartClient:
             raise Exception(f"Report download failed: {response.text}")
 
         return response.content
+
+    # ========================
+    # WEBHOOKS / NOTIFICATIONS
+    # ========================
+
+    def get_event_types(self, db):
+        """
+        Get available event types for subscription.
+        GET /v3/webhooks/eventTypes
+        """
+        return self.request(method="GET", endpoint="/v3/webhooks/eventTypes", db=db)
+
+    def create_subscriptions(self, db, events: list):
+        """
+        Create one or more webhook subscriptions.
+        POST /v3/webhooks/subscriptions
+        Body: {"events": [...]}
+        """
+        return self.request(
+            method="POST",
+            endpoint="/v3/webhooks/subscriptions",
+            db=db,
+            json={"events": events},
+        )
+
+    def get_all_subscriptions(self, db, subscription_id: str = None, event_type: str = None,
+                               resource_name: str = None, status: str = None):
+        """
+        Get all webhook subscriptions, with optional filters.
+        GET /v3/webhooks/subscriptions
+        """
+        params = {}
+        if subscription_id:
+            params["subscriptionId"] = subscription_id
+        if event_type:
+            params["eventType"] = event_type
+        if resource_name:
+            params["resourceName"] = resource_name
+        if status:
+            params["status"] = status
+
+        return self.request(
+            method="GET",
+            endpoint="/v3/webhooks/subscriptions",
+            db=db,
+            params=params,
+        )
+
+    def update_subscription(self, db, subscription_id: str, **kwargs):
+        """
+        Update a webhook subscription.
+        PATCH /v3/webhooks/subscriptions/{subscriptionId}
+        Body may contain: eventType, eventVersion, resourceName, eventUrl, authDetails, status
+        """
+        body = {k: v for k, v in kwargs.items() if v is not None}
+        return self.request(
+            method="PATCH",
+            endpoint=f"/v3/webhooks/subscriptions/{subscription_id}",
+            db=db,
+            json=body,
+        )
+
+    def delete_subscription(self, db, subscription_id: str):
+        """
+        Delete a webhook subscription.
+        DELETE /v3/webhooks/subscriptions/{subscriptionId}
+        """
+        return self.request(
+            method="DELETE",
+            endpoint=f"/v3/webhooks/subscriptions/{subscription_id}",
+            db=db,
+        )
+
+    def test_notification(self, db, event_type: str, event_version: str,
+                          resource_name: str, event_url: str, auth_details: dict = None):
+        """
+        Send a test notification to a destination URL.
+        POST /v3/webhooks/test
+        """
+        body = {
+            "eventType": event_type,
+            "eventVersion": event_version,
+            "resourceName": resource_name,
+            "eventUrl": event_url,
+        }
+        if auth_details:
+            body["authDetails"] = auth_details
+        return self.request(method="POST", endpoint="/v3/webhooks/test", db=db, json=body)

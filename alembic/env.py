@@ -5,6 +5,7 @@ from alembic import context
 
 from app.core.config import get_settings
 from app.models.base import Base
+import app.models  # noqa: F401 — register all models for autogenerate
 
 # Alembic Config object
 config = context.config

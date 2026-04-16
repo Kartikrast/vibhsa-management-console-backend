@@ -14,3 +14,4 @@ from app.models.product_media import ProductMedia
 from .google_taxonomy import GoogleTaxonomy
 from app.models.order import Order, OrderLine, OrderStatusLog
 from app.models.walmart_report_request import WalmartReportRequest, WalmartReportNotification
+from app.models.walmart_webhook import WalmartWebhookSubscription, WalmartWebhookEvent

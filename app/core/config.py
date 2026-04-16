@@ -39,6 +39,12 @@ class Settings(BaseSettings):
 
     ORDER_SYNC_INTERVAL_MINUTES: int = 15
 
+    # Walmart Webhooks
+    WALMART_WEBHOOK_BASE_URL: str = ""  # Public base URL Walmart POSTs to
+    WALMART_WEBHOOK_USERNAME: str = ""  # BASIC_AUTH username for incoming webhooks
+    WALMART_WEBHOOK_PASSWORD: str = ""  # BASIC_AUTH password for incoming webhooks
+    WALMART_WEBHOOK_AUTH_HEADER: str = "Authorization"  # Header name for auth
+
     BRAVE_BROWSER_PATH: str = ""
 
 

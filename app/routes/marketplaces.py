@@ -41,7 +41,7 @@ from app.services.marketplace_reports.walmart_report_service import (
     create_walmart_report_request,
     list_walmart_report_requests,
     get_walmart_report_request,
-    refresh_walmart_report_status,
+    refresh_walmart_report_status as refresh_wal_rep_status,
 )
 from app.models.taxonomy import (
     Category,
@@ -55,6 +55,14 @@ from app.models.taxonomy import (
 from app.services.marketplace_publish.walmart_publish_service import (
     publish_walmart_listing,
 )
+from app.schemas.walmart_webhook import (
+    WalmartSubscriptionCreateRequest,
+    WalmartSubscriptionUpdateRequest,
+    WalmartTestNotificationRequest,
+    WalmartWebhookEventResponse,
+)
+from app.services import walmart_webhook_service
+from app.models.walmart_webhook import WalmartWebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -1160,7 +1168,7 @@ def refresh_walmart_report_status(
     organization = context["organization"]
 
     try:
-        report_request = refresh_walmart_report_status(
+        report_request = refresh_wal_rep_status(
             db=db,
             organization_id=organization.id,
             report_request_id=report_id,
@@ -1187,3 +1195,209 @@ def refresh_walmart_report_status(
                 retry_after_seconds=retry_after,
             ).model_dump(),
         )
+
+
+# ========================
+# WALMART WEBHOOKS / NOTIFICATIONS
+# ========================
+
+@router.get("/walmart/webhooks/event-types")
+def get_walmart_event_types(
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    try:
+        return walmart_webhook_service.get_event_types(db=db, account=account)
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to get event types")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/walmart/webhooks/subscriptions")
+def create_walmart_subscriptions(
+    body: WalmartSubscriptionCreateRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    events = [ev.model_dump(exclude_none=True) for ev in body.events]
+    try:
+        return walmart_webhook_service.create_subscriptions(
+            db=db, account=account, organization_id=organization.id, events=events,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create webhook subscriptions")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/walmart/webhooks/subscriptions")
+def list_walmart_subscriptions(
+    subscription_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    resource_name: Optional[str] = None,
+    sub_status: Optional[str] = None,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    try:
+        return walmart_webhook_service.list_subscriptions(
+            db=db, account=account,
+            subscription_id=subscription_id,
+            event_type=event_type,
+            resource_name=resource_name,
+            status=sub_status,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to list webhook subscriptions")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.patch("/walmart/webhooks/subscriptions/{subscription_id}")
+def update_walmart_subscription(
+    subscription_id: str,
+    body: WalmartSubscriptionUpdateRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    updates = body.model_dump(exclude_none=True)
+    if body.authDetails:
+        updates["authDetails"] = body.authDetails.model_dump(exclude_none=True)
+    try:
+        return walmart_webhook_service.update_subscription(
+            db=db, account=account, subscription_id=subscription_id, updates=updates,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update webhook subscription")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.delete("/walmart/webhooks/subscriptions/{subscription_id}")
+def delete_walmart_subscription(
+    subscription_id: str,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    try:
+        return walmart_webhook_service.delete_subscription(
+            db=db, account=account, subscription_id=subscription_id,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to delete webhook subscription")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/walmart/webhooks/test")
+def send_walmart_test_notification(
+    body: WalmartTestNotificationRequest,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    organization = context["organization"]
+    account = db.query(MarketplaceAccount).filter(
+        MarketplaceAccount.organization_id == organization.id,
+        MarketplaceAccount.marketplace == "walmart",
+        MarketplaceAccount.is_active.is_(True),
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Walmart account not connected")
+
+    try:
+        return walmart_webhook_service.send_test_notification(
+            db=db, account=account,
+            event_type=body.eventType,
+            event_version=body.eventVersion,
+            resource_name=body.resourceName,
+            event_url=body.eventUrl,
+        )
+    except WalmartRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to send test notification")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/walmart/webhooks/events", response_model=List[WalmartWebhookEventResponse])
+def list_walmart_webhook_events(
+    resource_name: Optional[str] = None,
+    event_type: Optional[str] = None,
+    event_status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    context=Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """List stored webhook events received from Walmart."""
+    query = db.query(WalmartWebhookEvent)
+    if resource_name:
+        query = query.filter(WalmartWebhookEvent.resource_name == resource_name)
+    if event_type:
+        query = query.filter(WalmartWebhookEvent.event_type == event_type)
+    if event_status:
+        query = query.filter(WalmartWebhookEvent.status == event_status)
+    events = (
+        query.order_by(WalmartWebhookEvent.created_at.desc())
+        .offset(offset).limit(min(limit, 200)).all()
+    )
+    return [
+        WalmartWebhookEventResponse(
+            id=str(ev.id), event_id=ev.event_id, event_type=ev.event_type,
+            event_version=ev.event_version, resource_name=ev.resource_name,
+            payload=ev.payload, status=ev.status, error=ev.error,
+            processed_at=ev.processed_at.isoformat() if ev.processed_at else None,
+            created_at=ev.created_at.isoformat(),
+        ) for ev in events
+    ]

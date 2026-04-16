@@ -138,12 +138,28 @@ def refresh_walmart_report_status(
     Refresh the status of a Walmart report request by querying the API.
     """
     report_request = get_walmart_report_request(db, organization_id, report_request_id)
-
-    if report_request.status in ["COMPLETED", "FAILED"]:
-        return report_request
-
     account = report_request.marketplace_account
     client = WalmartClient(account)
+
+    if report_request.status in ["READY", "FAILED"]:
+        if report_request.status == "READY":
+            report_request.completed_at = datetime.now(timezone.utc)
+            # Try to get download URL
+            try:
+                download_response = client.get_report_download_url(db=db, request_id=report_request.external_request_id)
+                report_request.download_url = download_response.get("downloadURL")
+                report_request.expires_at = datetime.fromisoformat(download_response.get("expiresAt").replace('Z', '+00:00')) if download_response.get("expiresAt") else None
+            except Exception:
+                # if it fails, we can try again later, so we won't mark it as failed
+                pass
+                
+        elif report_request.status == "FAILED":
+            report_request.failed_at = datetime.now(timezone.utc)
+            report_request.error = response.get("error", "Unknown error")
+
+        db.commit()
+        db.refresh(report_request)
+        return report_request
 
     try:
         response = client.get_report_status(db=db, request_id=report_request.external_request_id)
@@ -151,28 +167,12 @@ def refresh_walmart_report_status(
         raise e
 
     # Update status based on response
-    status = response.get("status", "UNKNOWN")
+    status = response.get("requestStatus", "UNKNOWN")
     report_request.status = status
     report_request.response_payload = response
     report_request.updated_at = datetime.now(timezone.utc)
-
-    if status == "COMPLETED":
-        report_request.completed_at = datetime.now(timezone.utc)
-        # Try to get download URL
-        try:
-            download_response = client.get_report_download_url(db=db, request_id=report_request.external_request_id)
-            report_request.download_url = download_response.get("downloadUrl")
-            report_request.expires_at = datetime.fromisoformat(download_response.get("expiresAt").replace('Z', '+00:00')) if download_response.get("expiresAt") else None
-        except Exception:
-            # Download URL might not be available immediately
-            pass
-    elif status == "FAILED":
-        report_request.failed_at = datetime.now(timezone.utc)
-        report_request.error = response.get("error", "Unknown error")
-
     db.commit()
     db.refresh(report_request)
-
     return report_request
 
 
@@ -204,7 +204,7 @@ def handle_walmart_report_webhook(
 
     # Update report status
     if event_type == "report.completed":
-        report_request.status = "COMPLETED"
+        report_request.status = "READY"
         report_request.completed_at = datetime.now(timezone.utc)
         report_request.download_url = payload.get("downloadUrl")
         if payload.get("expiresAt"):
